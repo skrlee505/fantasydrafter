@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Draftside — Fantasy Draft Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="brandmark">D</div><div><b>DRAFTSIDE</b><span>Fantasy command center</span></div></div>
+    <div class="league"><span class="live-dot"></span><div><b>Fantasy Foot🅱️oolers 🏈</b><span>12-team · Half PPR · Pick 12</span></div></div>
+    <div class="top-actions"><button id="modeBtn" class="ghost">Demo room</button><button id="undoBtn" class="ghost" title="Undo latest manual entry">Undo manual</button><button id="muteBtn" class="icon-btn" title="Mute alerts">◖))</button><button id="refreshBtn" class="primary">↻ Sync draft</button></div>
+  </header>
+  <div id="offlineBanner" class="offline hidden">Offline — showing last known draft state. Manual recovery is available.</div>
+  <main>
+    <section class="turn-strip">
+      <div><span class="eyebrow">ROUND 1 · PICK 12</span><h1>You’re on the clock</h1><p>Back-to-back picks. Your next selection is pick 13.</p></div>
+      <div class="clock"><span id="clock">1:47</span><small>PICK TIMER</small></div>
+      <div class="sync"><span><i></i> Sleeper connected</span><small id="syncTime">Synced just now</small><button id="manualBtn">＋ Manual pick</button></div>
+    </section>
+
+    <section class="recommend-panel panel">
+      <div class="section-head"><div><span class="eyebrow">DECISION SUPPORT</span><h2>Your top 5 picks</h2><p>Balanced build · Hero RB lean · league-adjusted</p></div><button id="whyBtn" class="text-btn">How ranking works ↗</button></div>
+      <div id="recommendations" class="recommend-grid"></div>
+    </section>
+
+    <div class="content-grid">
+      <section class="available panel">
+        <div class="section-head compact"><div><span class="eyebrow">PLAYER POOL</span><h2>Best available</h2></div><div class="count" id="playerCount"></div></div>
+        <div class="filters"><label class="search">⌕ <input id="search" placeholder="Search players"></label><div id="positionFilters" class="chips"><button class="active" data-pos="ALL">All</button><button data-pos="QB">QB</button><button data-pos="RB">RB</button><button data-pos="WR">WR</button><button data-pos="TE">TE</button><button data-pos="K">K</button><button data-pos="DEF">DEF</button></div></div>
+        <div class="table-wrap"><table><thead><tr><th>RK</th><th>PLAYER</th><th>POS</th><th>PROJ</th><th>TIER</th><th>ADP</th><th>BYE</th><th></th></tr></thead><tbody id="playerRows"></tbody></table></div>
+      </section>
+
+      <aside class="roster panel">
+        <div class="section-head compact"><div><span class="eyebrow">HORSES DON’T STOP</span><h2>Roster build</h2></div><div class="grade"><b id="grade">B+</b><span>LIVE GRADE</span></div></div>
+        <div id="rosterSlots" class="roster-slots"></div>
+        <div class="needs"><b>Build read</b><div class="meter"><i id="meter"></i></div><p id="buildRead">You have two picks at the turn. Secure an anchor RB, then take the best receiver value.</p></div>
+        <div class="insights"><div><span class="good">↗</span><p><b>Strength</b><br><span id="strength">Clean slate, maximum flexibility</span></p></div><div><span class="warn">!</span><p><b>Priority</b><br><span id="priority">Add an anchor RB and elite WR</span></p></div></div>
+      </aside>
+    </div>
+
+    <section class="board panel">
+      <div class="section-head compact"><div><span class="eyebrow">LIVE DRAFT</span><h2>Draft board</h2></div><div class="legend"><span><i class="l-qb"></i>QB</span><span><i class="l-rb"></i>RB</span><span><i class="l-wr"></i>WR</span><span><i class="l-te"></i>TE</span><span><i class="l-manual"></i>Manual</span></div></div>
+      <div id="draftBoard" class="draft-board"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <dialog id="manualDialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">RECOVERY CONTROL</span><h2>Add a manual pick</h2></div><button value="cancel" class="close">×</button></div><p>Temporary picks are marked on the board and automatically replaced when Sleeper confirms that pick number.</p><label>Pick number<input id="manualNumber" type="number" min="1" max="180" value="12"></label><label>Player<select id="manualPlayer"></select></label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="saveManual" value="default" class="primary">Save manual pick</button></div></form></dialog>
+  <dialog id="whyDialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">TRANSPARENT MODEL</span><h2>Why this order?</h2></div><button class="close">×</button></div><p>The score blends league-adjusted projection, value over replacement, tier scarcity, roster fit, next-pick availability, player risk, ADP, upside, and modest stack value.</p><ul><li>Starter safety leads early; ceiling gains weight for bench picks.</li><li>Hero RB is a preference, not a rule.</li><li>QB and TE are delayed unless elite-tier value is available.</li><li>Kicker and defense are held for the final rounds.</li></ul><div class="data-note">Prototype projections are a bundled demonstration dataset. Live Sleeper scoring and picks are loaded when available; projection-provider provenance and freshness are disclosed in the UI.</div></form></dialog>
+  <script type="module" src="/app.js"></script>
+</body></html>
