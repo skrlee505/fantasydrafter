@@ -1,0 +1,48 @@
+.clock b{display:block;margin-top:4px;font:700 9px Manrope;letter-spacing:.1em;color:#fff}
+.decision-workspace{display:grid;grid-template-columns:minmax(430px,.82fr) minmax(0,1.38fr);gap:15px;margin-top:15px;align-items:stretch}
+.decision-workspace .recommend-panel,.decision-workspace .board{margin-top:0;padding:15px;min-width:0;height:560px}
+.decision-workspace .section-head{margin-bottom:10px}
+.decision-workspace .section-head h2{font-size:17px}
+.decision-workspace .section-head p{font-size:10px}
+.decision-workspace .recommend-grid{display:grid;grid-template-columns:1fr;gap:6px;overflow:auto;max-height:478px;padding-right:2px}
+.decision-workspace .rec-card{display:grid;grid-template-columns:27px minmax(135px,1fr) minmax(128px,.9fr);grid-template-areas:'rank player metrics' 'rank fit reasons';align-items:center;gap:4px 10px;padding:8px 9px;min-height:83px}
+.decision-workspace .rec-card:first-child:before{content:'BEST';top:5px;right:6px}
+.decision-workspace .rank{grid-area:rank;font-size:17px;text-align:center}
+.decision-workspace .player-head{grid-area:player;margin:0;min-width:0}
+.decision-workspace .player-head .avatar{width:31px;height:31px}
+.decision-workspace .metrics{grid-area:metrics;border:0;padding:0 34px 0 0}
+.decision-workspace .fit{grid-area:fit;margin:0;display:flex;gap:6px;align-items:center;font-size:9px}
+.decision-workspace .fit span{color:var(--muted)}
+.decision-workspace .pros{grid-area:reasons;margin:0;padding:0;list-style:none;font-size:9px}
+.decision-workspace .pros li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.benefit{color:#287653}.drawback{color:#9b5a34}
+.decision-workspace .draft-board{height:484px;max-height:484px;grid-template-columns:40px repeat(12,minmax(56px,1fr))}
+.decision-workspace .board-cell{min-width:56px;min-height:43px}
+.decision-workspace .legend{flex-wrap:wrap;justify-content:flex-end}
+.source-list{display:grid;gap:7px;margin:14px 0;max-height:260px;overflow:auto}
+.source-row{display:grid;grid-template-columns:1fr 100px auto;gap:9px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:9px}
+.source-row.built-in{grid-template-columns:1fr auto;background:#f6f8f6}
+.source-row b,.source-row span,.source-row small{display:block}
+.source-row small,.source-row>div span{font-size:10px;color:var(--muted)}
+.source-toggle{display:flex;align-items:center;gap:8px;margin:0}
+.source-toggle input{width:auto;margin:0}
+.source-toggle span{min-width:0}
+.source-row .weight{margin:0;font-size:9px;color:var(--muted)}
+.source-row .weight input{margin:2px 0 0;padding:6px}
+.source-row button{padding:7px 9px;font-size:10px}
+.empty-source{border:1px dashed var(--line);border-radius:8px;padding:12px;color:var(--muted);font-size:11px;text-align:center}
+@media(max-width:1050px){
+  .decision-workspace{grid-template-columns:minmax(380px,.8fr) minmax(0,1.2fr)}
+  .decision-workspace .recommend-panel,.decision-workspace .board{height:535px}
+  .decision-workspace .draft-board{height:460px;max-height:460px}
+  .decision-workspace .rec-card{grid-template-columns:25px minmax(120px,1fr);grid-template-areas:'rank player' 'rank metrics' 'rank fit' 'rank reasons'}
+  .decision-workspace .metrics{padding-right:0}
+  .decision-workspace .pros li{white-space:normal}
+}
+@media(max-width:760px){
+  .decision-workspace{grid-template-columns:1fr}
+  .decision-workspace .recommend-panel,.decision-workspace .board{height:auto}
+  .decision-workspace .recommend-grid{display:flex;overflow-x:auto}
+  .decision-workspace .rec-card{min-width:285px}
+  .decision-workspace .draft-board{height:360px}
+}
