@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -73,6 +73,15 @@ test('full Sleeper pool includes unprojected active players with disclosed fallb
   assert.equal(pool[0].projectionSource,'Sleeper rank fallback');
 });
 
+test('inactive and unmatched legacy players never enter the live pool', () => {
+  const legacyProjection=player('legacy','RB',{name:'Retired Star'});
+  const pool=mergeSleeperPlayerPool([legacyProjection],{
+    'old':{full_name:'Retired Star',position:'RB',team:null,active:false,search_rank:1},
+    'current':{full_name:'Current Player',position:'RB',team:'SEA',active:true,search_rank:20}
+  });
+  assert.deepEqual(pool.map(p=>p.name),['Current Player']);
+});
+
 test('CSV ranking sources parse common columns and blend by weight', () => {
   const first=parseRankingCsv('Player,Pos,Rank,Projection\n"Brian Thomas, Jr.",WR,8,265','Source A');
   const second=parseRankingCsv('Name,Position,ECR,Points\n"Brian Thomas, Jr.",WR,12,245','Source B');
@@ -81,6 +90,22 @@ test('CSV ranking sources parse common columns and blend by weight', () => {
   assert.equal(blended.expertRank,9);
   assert.equal(blended.projection,260);
   assert.equal(blended.rankingSourceCount,2);
+});
+
+test('uploaded rankings can define the eligible recommendation universe', () => {
+  const source=parseRankingCsv('Player,Pos,Rank\nCurrent Player,RB,1','Current ranks');
+  const result=applyRankingSources([player('current','RB',{name:'Current Player'}),player('legacy','WR',{name:'Retired Player'})],[source],{requireMatch:true});
+  assert.deepEqual(result.map(p=>p.id),['current']);
+  assert.equal(result[0].projection,220);
+});
+
+test('strategy articles produce transparent weighted recommendation signals', () => {
+  const article=analyzeStrategyText('A Hero RB build works well. Wait on quarterback and target rookie upside on the bench.','Draft guide');
+  const profile=aggregateStrategySources([article]);
+  assert.equal(profile.heroRb,1);
+  assert.equal(profile.qbPatience,1);
+  const result=recommend([player('rb','RB',{projection:220,adp:12}),player('wr','WR',{projection:220,adp:12})],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],strategyProfile:profile});
+  assert.ok(result.find(p=>p.id==='rb').strategyAdjustment>result.find(p=>p.id==='wr').strategyAdjustment);
 });
 
 test('partial draft evaluation withholds a misleading final letter grade', () => {

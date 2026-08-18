@@ -31,6 +31,7 @@
 .source-row .weight input{margin:2px 0 0;padding:6px}
 .source-row button{padding:7px 9px;font-size:10px}
 .empty-source{border:1px dashed var(--line);border-radius:8px;padding:12px;color:var(--muted);font-size:11px;text-align:center}
+.strategy-source{border:1px solid var(--line);border-radius:8px;overflow:hidden}.strategy-source .source-row{border:0;border-radius:0}.strategy-signals{display:flex;flex-wrap:wrap;gap:5px;padding:0 9px 9px}.signal{background:#e8f2ee;color:var(--green);border-radius:12px;padding:4px 7px;font-size:9px;font-weight:700}.signal.negative{background:#f7eae5;color:#994f32}.signal.neutral{background:#eef0ef;color:var(--muted)}dialog textarea{display:block;width:100%;margin-top:5px;padding:10px;border:1px solid var(--line);border-radius:7px;resize:vertical;font:inherit}.top-actions{flex-wrap:nowrap}.top-actions button{white-space:nowrap}
 @media(max-width:1050px){
   .decision-workspace{grid-template-columns:minmax(380px,.8fr) minmax(0,1.2fr)}
   .decision-workspace .recommend-panel,.decision-workspace .board{height:535px}

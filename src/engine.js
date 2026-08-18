@@ -57,16 +57,16 @@ export function parseRankingCsv(text, sourceName = 'Imported rankings') {
   return { id:`source-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Imported rankings', weight:1, enabled:true, entries };
 }
 
-export function applyRankingSources(players = [], sources = []) {
+export function applyRankingSources(players = [], sources = [], options = {}) {
   const active = sources.filter(source => source.enabled !== false && Number(source.weight) > 0);
   if (!active.length) return players.map(player => ({ ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 }));
   const maps = active.map(source => ({ source, entries:new Map((source.entries || []).map(entry => [entry.key, entry])) }));
   return players.map(player => {
     const key = `${canonicalPlayerName(player.name)}:${player.position}`;
     const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key) })).filter(match => match.entry);
-    if (!matches.length) return { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 };
+    if (!matches.length) return options.requireMatch ? null : { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 };
     const blend = field => {
-      const usable = matches.filter(({entry}) => Number.isFinite(Number(entry[field])));
+      const usable = matches.filter(({entry}) => entry[field] !== null && entry[field] !== undefined && entry[field] !== '' && Number.isFinite(Number(entry[field])));
       if (!usable.length) return null;
       const total = usable.reduce((sum,{source}) => sum + Number(source.weight || 1), 0);
       return usable.reduce((sum,{source,entry}) => sum + Number(entry[field]) * Number(source.weight || 1), 0) / total;
@@ -80,7 +80,42 @@ export function applyRankingSources(players = [], sources = []) {
       projectionSource:projection != null ? `${matches.map(m=>m.source.name).join(' + ')} blend` : player.projectionSource,
       rankingSourceNames:matches.map(m=>m.source.name)
     };
-  });
+  }).filter(Boolean);
+}
+
+const strategyDefinitions = [
+  { id:'heroRb', label:'Hero RB lean', positive:[/\bhero\s*rb\b/gi,/\banchor\s*(running back|rb)\b/gi], negative:[/\bzero\s*rb\b/gi] },
+  { id:'qbPatience', label:'Wait on quarterback', positive:[/\blate[- ]round\s+qb\b/gi,/\bwait\s+(on|at)\s+(quarterback|qb)\b/gi,/\blate\s+qb\b/gi], negative:[/\bearly\s+(quarterback|qb)\b/gi,/\belite\s+(quarterback|qb)\b/gi] },
+  { id:'tePatience', label:'Wait on tight end', positive:[/\bwait\s+(on|at)\s+(tight end|te)\b/gi,/\blate\s+(tight end|te)\b/gi], negative:[/\bearly\s+(tight end|te)\b/gi] },
+  { id:'stacking', label:'Favor useful stacks', positive:[/\b(qb|quarterback)[–—-]?(wr|receiver|te|tight end)\s+stack/gi,/\bstack(ing)?\s+(a\s+)?(qb|quarterback)/gi], negative:[/\bavoid\s+stack/gi] },
+  { id:'rookieUpside', label:'Target rookie upside', positive:[/\b(high[- ]upside|upside)\s+rook/gi,/\btarget\s+rook/gi,/\brookie\s+upside\b/gi], negative:[/\bavoid\s+rook/gi] },
+  { id:'handcuffValue', label:'Handcuff at a fair price', positive:[/\bhandcuff\b/gi,/\bdirect\s+backup\b/gi], negative:[] }
+];
+
+export function analyzeStrategyText(text = '', sourceName = 'Strategy article') {
+  const clean = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (clean.length < 40) throw new Error('Strategy text must contain at least 40 characters.');
+  const signals = {};
+  const detected = [];
+  for (const definition of strategyDefinitions) {
+    const positive = definition.positive.reduce((count,pattern)=>count+(clean.match(pattern)||[]).length,0);
+    const negative = definition.negative.reduce((count,pattern)=>count+(clean.match(pattern)||[]).length,0);
+    const score = Math.max(-1,Math.min(1,(positive-negative)/Math.max(1,positive+negative)));
+    if (positive || negative) { signals[definition.id]=score; detected.push({ id:definition.id,label:definition.label,score }); }
+  }
+  return { id:`strategy-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Strategy article', weight:1, enabled:true, signals, detected, excerpt:clean.slice(0,240), importedAt:new Date().toISOString() };
+}
+
+export function aggregateStrategySources(sources = []) {
+  const active=sources.filter(source=>source.enabled!==false&&Number(source.weight)>0);
+  const profile={};
+  for(const definition of strategyDefinitions){
+    const contributors=active.filter(source=>Number.isFinite(Number(source.signals?.[definition.id])));
+    if(!contributors.length)continue;
+    const total=contributors.reduce((sum,source)=>sum+Number(source.weight||1),0);
+    profile[definition.id]=contributors.reduce((sum,source)=>sum+Number(source.signals[definition.id])*Number(source.weight||1),0)/total;
+  }
+  return profile;
 }
 
 export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
@@ -93,7 +128,7 @@ export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
     const listedPosition = raw.position || raw.fantasy_positions?.[0];
     const position = listedPosition === 'DST' ? 'DEF' : listedPosition;
     const name = raw.full_name || `${raw.first_name || ''} ${raw.last_name || ''}`.trim() || (position === 'DEF' ? raw.team : 'Unknown player');
-    if (!positions.has(position) || raw.active === false || !name) continue;
+    if (!positions.has(position) || raw.active !== true || !name) continue;
     const projection = projectionByAlias.get(`${canonicalPlayerName(name)}:${position}`) || (position==='DEF' ? defenseByTeam.get(raw.team||sleeperId) : null);
     if (projection) matched.add(projection.id);
     const rank = Number(raw.search_rank);
@@ -101,16 +136,16 @@ export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
     const baseline = { QB:310, RB:220, WR:210, TE:175, K:145, DEF:135 }[position];
     pool.push(projection ? {
       ...projection, id:sleeperId, sleeperId, name, team:raw.team || projection.team,
-      status:raw.injury_status || raw.status || projection.status, identitySource:'Sleeper ID', projectionSource:'Bundled projection'
+      status:raw.injury_status || raw.status || projection.status, yearsExp:Number(raw.years_exp), identitySource:'Sleeper ID', projectionSource:'Bundled projection'
     } : {
       id:sleeperId, sleeperId, name, team:raw.team || (position === 'DEF' ? sleeperId : 'FA'), position,
       projection:Math.max(35,Math.round(baseline-Math.min(adp,300)*.55)), adp,
       tier:Math.min(9,Math.max(1,Math.ceil(adp/24))), vor:Math.max(-30,25-adp*.2),
-      risk:raw.injury_status?.length ? .25 : .12, upside:Number(raw.years_exp) <= 1 ? .78 : .48,
+      risk:raw.injury_status?.length ? .25 : .12, upside:Number(raw.years_exp) <= 1 ? .78 : .48, yearsExp:Number(raw.years_exp),
       bye:'—', status:raw.injury_status || raw.status || 'Active', identitySource:'Sleeper ID', projectionSource:'Sleeper rank fallback'
     });
   }
-  for (const projection of projections) if (!matched.has(projection.id)) pool.push({ ...projection, projectionSource:'Unmapped bundled projection' });
+  if (!Object.keys(sleeperMap).length) for (const projection of projections) if (!matched.has(projection.id)) pool.push({ ...projection, projectionSource:'Unmapped bundled projection' });
   return pool.sort((a,b)=>a.adp-b.adp);
 }
 
@@ -169,13 +204,27 @@ export function scorePlayer(player, context) {
   const irStash = player.status === 'IR' && roster.length < 14 && player.projection > 175 ? 4 : 0;
   const urgency = Math.max(0, Math.min(12, (nextPick - player.adp) * .25));
   const fallbackPenalty = ['Sleeper rank fallback','No projection mapping'].includes(player.projectionSource) ? 20 : 0;
-  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateUpside + heroRB + stack + irStash + urgency - risk - waitPenalty - fallbackPenalty;
+  const articleAdjustment = strategyAdjustment(player,context,{ counts,round,stack });
+  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty;
+}
+
+export function strategyAdjustment(player, context, computed = {}) {
+  const profile=context.strategyProfile||{},counts=computed.counts||rosterNeeds(context.roster||[]).counts,round=computed.round||Math.ceil((context.currentPick||1)/12);
+  let adjustment=0;
+  if(player.position==='RB'&&!(counts.RB>0)&&round<=3)adjustment+=Number(profile.heroRb||0)*6;
+  if(player.position==='WR'&&round<=3)adjustment-=Number(profile.heroRb||0)*2.5;
+  if(player.position==='QB'&&round<=7)adjustment-=Number(profile.qbPatience||0)*9;
+  if(player.position==='TE'&&round<=5&&player.tier>1)adjustment-=Number(profile.tePatience||0)*7;
+  if(player.position==='TE'&&round<=5&&player.tier===1)adjustment-=Number(profile.tePatience||0)*2;
+  if(Number(player.yearsExp)===0&&round>=7)adjustment+=Math.max(0,Number(profile.rookieUpside||0))*6;
+  if(computed.stack)adjustment+=Math.max(0,Number(profile.stacking||0))*3;
+  return Math.max(-12,Math.min(12,adjustment));
 }
 
 export function recommend(players, context, count = 5) {
   const drafted = new Set(context.draftedIds || []);
   return players.filter(p => !drafted.has(p.id) && !context.doNotDraft?.includes(p.id))
-    .map(p => ({ ...p, score: scorePlayer(p, context), availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
+    .map(p => ({ ...p, score: scorePlayer(p, context), strategyAdjustment:strategyAdjustment(p,context), availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
     .sort((a,b) => b.score - a.score).slice(0, count);
 }
 

@@ -71,7 +71,7 @@ All recommendation projections must be translated into these league-specific sco
 The dashboard must:
 
 1. Load the league, draft, users, rosters, draft order, player map, and completed draft picks from Sleeper's public read-only API.
-2. Poll for new picks every 2 seconds while a draft is active, meeting the required 1–5 second freshness window under normal network conditions.
+2. Connect automatically when the dashboard opens and poll for new picks every 750ms while a draft is active. Requests must remain serialized and non-overlapping.
 3. Update the draft board, available-player pool, recommendations, roster analysis, alerts, and next-pick calculations after every detected pick.
 4. Deduplicate picks by stable Sleeper identifiers/pick number and remain correct after refresh or restart.
 5. Include a manual refresh control and show the time and status of the last successful sync.
@@ -238,6 +238,8 @@ PDF, image, and external sharing exports are not required in the MVP.
 - During implementation, select the strongest practical sources that permit programmatic or file-based use and document their provenance, freshness, attribution, and usage restrictions.
 - Keep Sleeper player IDs mapped to source-specific identifiers in a replaceable provider layer.
 - Support one selected source or a blend of multiple sources.
+- Persist imported ranking and strategy sources in a Git-ignored local library that survives application builds; mirror them in browser storage as a fallback.
+- When one or more ranking sources are enabled, use their union as the eligible recommendation universe and exclude unmatched baseline records.
 - When multiple sources are selected, use equal weights by default and allow the user to adjust weights.
 - Persist source selection and weights between sessions.
 - Display data freshness and identify missing players or unmapped records.
@@ -248,6 +250,14 @@ PDF, image, and external sharing exports are not required in the MVP.
 The architecture must allow later upload of user-supplied rankings or projections and blending with defaults. CSV import is sufficient as the first future format.
 
 Manual rearrangement of individual rankings and manual custom-tier editing are not required.
+
+### 4.3 Strategy article library
+
+- Import draft-strategy articles separately from player ranking files using text, Markdown, HTML, or pasted text.
+- Detect only supported strategy signals and display those signals for review.
+- Allow each strategy article to be enabled, disabled, removed, and weighted.
+- Cap article-driven score adjustments and disclose material positive or negative influence on recommendation cards.
+- Store unrecognized article content without allowing it to silently affect recommendations.
 
 ## 5. User experience
 

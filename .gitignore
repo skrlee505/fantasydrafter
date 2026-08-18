@@ -1,6 +1,7 @@
 node_modules/
 .DS_Store
 data/
+.draftside-data/
 *.log
 .env*
 !.env.example
