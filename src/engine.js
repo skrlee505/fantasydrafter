@@ -59,12 +59,19 @@ export function parseRankingCsv(text, sourceName = 'Imported rankings') {
 
 export function applyRankingSources(players = [], sources = [], options = {}) {
   const active = sources.filter(source => source.enabled !== false && Number(source.weight) > 0);
-  if (!active.length) return players.map(player => ({ ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 }));
-  const maps = active.map(source => ({ source, entries:new Map((source.entries || []).map(entry => [entry.key, entry])) }));
+  if (!active.length) return options.requireMatch ? [] : players.map(player => ({ ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0, sourceEligible:false }));
+  const maps = active.map(source => {
+    const entries=new Map();
+    for(const entry of source.entries||[]){
+      entries.set(entry.key,entry);
+      if(entry.position==='DEF'&&entry.team)entries.set(`defteam:${String(entry.team).toUpperCase()}`,entry);
+    }
+    return{source,entries};
+  });
   return players.map(player => {
     const key = `${canonicalPlayerName(player.name)}:${player.position}`;
-    const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key) })).filter(match => match.entry);
-    if (!matches.length) return options.requireMatch ? null : { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 };
+    const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key)||(player.position==='DEF'&&player.team?entries.get(`defteam:${String(player.team).toUpperCase()}`):null) })).filter(match => match.entry);
+    if (!matches.length) return options.requireMatch ? null : { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0, sourceEligible:false };
     const blend = field => {
       const usable = matches.filter(({entry}) => entry[field] !== null && entry[field] !== undefined && entry[field] !== '' && Number.isFinite(Number(entry[field])));
       if (!usable.length) return null;
@@ -77,6 +84,7 @@ export function applyRankingSources(players = [], sources = [], options = {}) {
       ...(adp != null ? { adp } : {}), ...(projection != null ? { projection } : {}), ...(tier != null ? { tier:Math.max(1,Math.round(tier)) } : {}),
       expertRank:rank ?? player.expertRank ?? player.adp,
       rankingSourceCount:matches.length,
+      sourceEligible:true,
       projectionSource:projection != null ? `${matches.map(m=>m.source.name).join(' + ')} blend` : player.projectionSource,
       rankingSourceNames:matches.map(m=>m.source.name)
     };
@@ -92,7 +100,7 @@ const strategyDefinitions = [
   { id:'handcuffValue', label:'Handcuff at a fair price', positive:[/\bhandcuff\b/gi,/\bdirect\s+backup\b/gi], negative:[] }
 ];
 
-export function analyzeStrategyText(text = '', sourceName = 'Strategy article') {
+export function analyzeStrategyText(text = '', sourceName = 'Strategy article', metadata = {}) {
   const clean = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   if (clean.length < 40) throw new Error('Strategy text must contain at least 40 characters.');
   const signals = {};
@@ -103,7 +111,11 @@ export function analyzeStrategyText(text = '', sourceName = 'Strategy article') 
     const score = Math.max(-1,Math.min(1,(positive-negative)/Math.max(1,positive+negative)));
     if (positive || negative) { signals[definition.id]=score; detected.push({ id:definition.id,label:definition.label,score }); }
   }
-  return { id:`strategy-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Strategy article', weight:1, enabled:true, signals, detected, excerpt:clean.slice(0,240), importedAt:new Date().toISOString() };
+  return {
+    id:`strategy-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Strategy article', weight:1, enabled:true,
+    signals, detected, excerpt:clean.slice(0,240), text:clean, characterCount:clean.length,
+    fileName:metadata.fileName||null, format:metadata.format||'text', importedAt:new Date().toISOString()
+  };
 }
 
 export function aggregateStrategySources(sources = []) {
@@ -189,15 +201,17 @@ export function scorePlayer(player, context) {
   const expertRank = Number(player.expertRank);
   const expertValue = Number.isFinite(expertRank) ? Math.max(-10, Math.min(14, (currentPick - expertRank) * .45)) : 0;
   const risk = (player.risk || 0) * 12;
-  const needBonusByPosition = { QB:3, RB:14, WR:14, TE:9, K:0, DEF:0 };
+  const needBonusByPosition = { QB:3, RB:14, WR:14, TE:9, K:4, DEF:4 };
   const needBonus = starterNeed > 0 ? needBonusByPosition[player.position] || 0 : 0;
+  const lateSpecialTeamsNeed = ['K','DEF'].includes(player.position) && starterNeed > 0 && round >= 14 ? (round >= 15 ? 68 : 42) : 0;
   const lateUpside = round >= 9 ? (player.upside || 0) * 11 : (player.upside || 0) * 4;
   const heroRB = player.position === 'RB' && !(counts.RB > 0) && round <= 3 ? 15 : 0;
   const qbWait = player.position === 'QB' ? (round <= 5 ? (player.tier === 1 ? 20 : 38) : round <= 7 ? 8 : 0) : 0;
   const duplicateQb = player.position === 'QB' && (counts.QB || 0) >= 1 ? (round < 11 ? 48 : 24) : 0;
   const duplicateTe = player.position === 'TE' && (counts.TE || 0) >= 1 ? (round < 10 ? 24 : 10) : 0;
   const saturatedSkill = (player.position === 'RB' && (counts.RB || 0) >= 5) || (player.position === 'WR' && (counts.WR || 0) >= 6) ? 15 : 0;
-  const waitPenalty = qbWait + duplicateQb + duplicateTe + saturatedSkill
+  const duplicateSpecialTeams = ['K','DEF'].includes(player.position) && (counts[player.position] || 0) >= 1 ? 65 : 0;
+  const waitPenalty = qbWait + duplicateQb + duplicateTe + duplicateSpecialTeams + saturatedSkill
     + (player.position === 'TE' && round < 5 && player.tier > 1 ? 15 : 0)
     + (['K','DEF'].includes(player.position) && round < 14 ? 80 : 0);
   const stack = roster.some(p => p.team === player.team && ((p.position === 'QB' && ['WR','TE'].includes(player.position)) || (player.position === 'QB' && ['WR','TE'].includes(p.position)))) ? 3 : 0;
@@ -205,7 +219,7 @@ export function scorePlayer(player, context) {
   const urgency = Math.max(0, Math.min(12, (nextPick - player.adp) * .25));
   const fallbackPenalty = ['Sleeper rank fallback','No projection mapping'].includes(player.projectionSource) ? 20 : 0;
   const articleAdjustment = strategyAdjustment(player,context,{ counts,round,stack });
-  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty;
+  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateSpecialTeamsNeed + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty;
 }
 
 export function strategyAdjustment(player, context, computed = {}) {
@@ -223,7 +237,7 @@ export function strategyAdjustment(player, context, computed = {}) {
 
 export function recommend(players, context, count = 5) {
   const drafted = new Set(context.draftedIds || []);
-  return players.filter(p => !drafted.has(p.id) && !context.doNotDraft?.includes(p.id))
+  return players.filter(p => !drafted.has(p.id) && !context.doNotDraft?.includes(p.id) && (!context.requireUploadedSource || p.sourceEligible === true))
     .map(p => ({ ...p, score: scorePlayer(p, context), strategyAdjustment:strategyAdjustment(p,context), availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
     .sort((a,b) => b.score - a.score).slice(0, count);
 }

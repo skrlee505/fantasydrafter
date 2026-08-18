@@ -4,13 +4,13 @@ A working local prototype for the **Fantasy Foot🅱️oolers 🏈** 2026 Sleepe
 
 ## Run it
 
-Requires Node.js 20 or newer.
+Requires Node.js 22.13 or newer.
 
 ```bash
 npm start
 ```
 
-Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party package is required. Run tests with `npm test`.
+Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> in current Chrome. Run tests with `npm test`.
 
 ## What works
 
@@ -20,7 +20,7 @@ Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party p
 - Hero RB preference, early-round QB/TE discipline, late K/DEF logic, risk and upside weighting
 - Multiple CSV ranking/projection sources with enable controls and adjustable blend weights
 - Durable on-Mac source library that survives app builds and browser-storage changes
-- Separate strategy-article library with transparent, capped recommendation adjustments
+- Separate strategy-article library with PDF support, complete source retention, and transparent capped recommendation adjustments
 - Best-available search and position filters
 - Persistent watchlist and do-not-draft list
 - Live roster slots, needs, strengths, and grade
@@ -54,9 +54,9 @@ Imported sources are saved in `.draftside-data/source-library.json` on this Mac 
 
 ## Import strategy articles
 
-Open **Strategy library** to import a `.txt`, `.md`, or `.html` article, or paste article text directly. Strategy articles remain separate from player rankings.
+Open **Strategy library** to import a `.txt`, `.md`, `.html`, or text-searchable `.pdf` article, or paste article text directly. Strategy articles remain separate from player rankings. Image-only scanned PDFs must be OCR'd first.
 
-Draftside detects a deliberately limited set of guidance: Hero/Zero RB, quarterback and tight-end timing, useful stacks, rookie upside, and handcuff value. Detected signals are displayed for review, can be enabled or disabled, and have adjustable weights. Their effect on any player is capped and appears directly on the recommendation card. Unrecognized prose is stored but does not silently change the decision engine.
+Draftside detects a deliberately limited set of guidance: Hero/Zero RB, quarterback and tight-end timing, useful stacks, rookie upside, and handcuff value. Detected signals are displayed for review, can be enabled or disabled, and have adjustable weights. Their effect on any player is capped and appears directly on the recommendation card. The complete extracted source text, original filename, and format are saved in `.draftside-data/source-library.json`, alongside ranking sources; unrecognized prose is retained but does not silently change the decision engine.
 
 ## Practice with a Sleeper mock
 
@@ -80,7 +80,7 @@ Key boundaries:
 - `src/engine.js`: pure recommendation, roster-needs, snake-pick, and reconciliation logic
 - `public/app.js`: state, persistence, Sleeper polling, and UI orchestration
 - `public/data.js`: replaceable projection/ADP provider layer
-- `server.mjs`: dependency-free local static server
+- `server.mjs`: local static server and durable source-library endpoint
 
 ## Draft-night recovery
 

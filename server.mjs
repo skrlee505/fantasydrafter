@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT || 4173);
-const types = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.json':'application/json' };
+const types = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.mjs':'text/javascript; charset=utf-8', '.json':'application/json' };
 const dataDirectory=process.env.DRAFTSIDE_DATA_DIR?resolve(process.env.DRAFTSIDE_DATA_DIR):join(root,'.draftside-data');
 const sourceLibraryPath=join(dataDirectory,'source-library.json');
 
@@ -23,6 +23,14 @@ const server = createServer(async (req, res) => {
       return json(res,405,{error:'Method not allowed'});
     }
     const requested = raw === '/' ? '/index.html' : raw;
+    if(requested.startsWith('/vendor/pdfjs/')){
+      const file=requested.slice('/vendor/pdfjs/'.length);
+      if(!['pdf.mjs','pdf.worker.mjs'].includes(file))throw new Error('Invalid vendor asset');
+      const path=join(root,'node_modules','pdfjs-dist','build',file);
+      await stat(path);
+      res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'public, max-age=86400'});
+      return res.end(await readFile(path));
+    }
     const base = requested.startsWith('/src/') ? root : join(root, 'public');
     const path = normalize(join(base, requested));
     if (!path.startsWith(base)) throw new Error('Invalid path');

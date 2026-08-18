@@ -99,6 +99,33 @@ test('uploaded rankings can define the eligible recommendation universe', () => 
   assert.equal(result[0].projection,220);
 });
 
+test('recommendations reject every player not present in an uploaded source', () => {
+  const result=recommend([
+    player('listed','RB',{sourceEligible:true}),
+    player('retired','WR',{projection:400,vor:90,sourceEligible:false})
+  ],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],requireUploadedSource:true});
+  assert.deepEqual(result.map(p=>p.id),['listed']);
+});
+
+test('defense rankings match the canonical Sleeper defense by team code', () => {
+  const source=parseRankingCsv('Player,Pos,Team,Rank\nDenver Broncos Defense,DST,DEN,1','Defense ranks');
+  const result=applyRankingSources([player('DEN','DEF',{name:'Denver Broncos',team:'DEN'})],[source],{requireMatch:true});
+  assert.deepEqual(result.map(p=>p.id),['DEN']);
+  assert.equal(result[0].sourceEligible,true);
+});
+
+test('late-round recommendations surface both missing kicker and defense starters', () => {
+  const roster=[player('qb1','QB'),player('rb1','RB'),player('rb2','RB'),player('wr1','WR'),player('wr2','WR'),player('wr3','WR'),player('te1','TE'),player('flex','RB')];
+  const pool=[
+    player('bench-rb','RB',{adp:170,vor:15}),
+    player('bench-wr','WR',{adp:170,vor:15}),
+    player('kicker','K',{projection:145,adp:170,vor:10}),
+    player('defense','DEF',{projection:135,adp:170,vor:10})
+  ];
+  const result=recommend(pool,{roster,currentPick:169,nextPick:180,draftedIds:[],doNotDraft:[]});
+  assert.deepEqual(new Set(result.slice(0,2).map(p=>p.position)),new Set(['K','DEF']));
+});
+
 test('strategy articles produce transparent weighted recommendation signals', () => {
   const article=analyzeStrategyText('A Hero RB build works well. Wait on quarterback and target rookie upside on the bench.','Draft guide');
   const profile=aggregateStrategySources([article]);
@@ -106,6 +133,15 @@ test('strategy articles produce transparent weighted recommendation signals', ()
   assert.equal(profile.qbPatience,1);
   const result=recommend([player('rb','RB',{projection:220,adp:12}),player('wr','WR',{projection:220,adp:12})],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],strategyProfile:profile});
   assert.ok(result.find(p=>p.id==='rb').strategyAdjustment>result.find(p=>p.id==='wr').strategyAdjustment);
+});
+
+test('strategy sources retain complete cleaned text and import metadata', () => {
+  const raw='<h1>Draft plan</h1> Wait on quarterback and target rookie upside on the bench throughout the later rounds.';
+  const article=analyzeStrategyText(raw,'Guide',{fileName:'guide.pdf',format:'pdf'});
+  assert.equal(article.text,'Draft plan Wait on quarterback and target rookie upside on the bench throughout the later rounds.');
+  assert.equal(article.characterCount,article.text.length);
+  assert.equal(article.fileName,'guide.pdf');
+  assert.equal(article.format,'pdf');
 });
 
 test('partial draft evaluation withholds a misleading final letter grade', () => {
