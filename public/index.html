@@ -6,17 +6,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/mock.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><div class="brandmark">D</div><div><b>DRAFTSIDE</b><span>Fantasy command center</span></div></div>
-    <div class="league"><span class="live-dot"></span><div><b>Fantasy Foot🅱️oolers 🏈</b><span>12-team · Half PPR · Pick 12</span></div></div>
-    <div class="top-actions"><button id="modeBtn" class="ghost">Demo room</button><button id="undoBtn" class="ghost" title="Undo latest manual entry">Undo manual</button><button id="muteBtn" class="icon-btn" title="Mute alerts">◖))</button><button id="refreshBtn" class="primary">↻ Sync draft</button></div>
+    <div class="league"><span class="live-dot"></span><div><b id="leagueName">Fantasy Foot🅱️oolers 🏈</b><span id="leagueMeta">12-team · Half PPR · Pick 12</span></div></div>
+    <div class="top-actions"><button id="modeBtn" class="ghost">Practice mocks</button><button id="undoBtn" class="ghost" title="Undo latest manual entry">Undo manual</button><button id="muteBtn" class="icon-btn" title="Mute alerts">◖))</button><button id="refreshBtn" class="primary">↻ Sync draft</button></div>
   </header>
   <div id="offlineBanner" class="offline hidden">Offline — showing last known draft state. Manual recovery is available.</div>
   <main>
     <section class="turn-strip">
-      <div><span class="eyebrow">ROUND 1 · PICK 12</span><h1>You’re on the clock</h1><p>Back-to-back picks. Your next selection is pick 13.</p></div>
+      <div><span id="pickLabel" class="eyebrow">ROUND 1 · PICK 12</span><h1 id="turnTitle">You’re on the clock</h1><p id="turnDetail">Back-to-back picks. Your next selection is pick 13.</p></div>
       <div class="clock"><span id="clock">1:47</span><small>PICK TIMER</small></div>
       <div class="sync"><span><i></i> Sleeper connected</span><small id="syncTime">Synced just now</small><button id="manualBtn">＋ Manual pick</button></div>
     </section>
@@ -42,13 +43,15 @@
     </div>
 
     <section class="board panel">
-      <div class="section-head compact"><div><span class="eyebrow">LIVE DRAFT</span><h2>Draft board</h2></div><div class="legend"><span><i class="l-qb"></i>QB</span><span><i class="l-rb"></i>RB</span><span><i class="l-wr"></i>WR</span><span><i class="l-te"></i>TE</span><span><i class="l-manual"></i>Manual</span></div></div>
+      <div class="section-head compact"><div><span id="boardMode" class="eyebrow">LIVE DRAFT</span><h2>Draft board</h2></div><div class="legend"><span><i class="l-qb"></i>QB</span><span><i class="l-rb"></i>RB</span><span><i class="l-wr"></i>WR</span><span><i class="l-te"></i>TE</span><span><i class="l-manual"></i>Manual</span></div></div>
       <div id="draftBoard" class="draft-board"></div>
     </section>
+    <section id="evaluationPanel" class="evaluation panel hidden"></section>
   </main>
 
   <div id="toast" class="toast hidden"></div>
   <dialog id="manualDialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">RECOVERY CONTROL</span><h2>Add a manual pick</h2></div><button value="cancel" class="close">×</button></div><p>Temporary picks are marked on the board and automatically replaced when Sleeper confirms that pick number.</p><label>Pick number<input id="manualNumber" type="number" min="1" max="180" value="12"></label><label>Player<select id="manualPlayer"></select></label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="saveManual" value="default" class="primary">Save manual pick</button></div></form></dialog>
   <dialog id="whyDialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">TRANSPARENT MODEL</span><h2>Why this order?</h2></div><button class="close">×</button></div><p>The score blends league-adjusted projection, value over replacement, tier scarcity, roster fit, next-pick availability, player risk, ADP, upside, and modest stack value.</p><ul><li>Starter safety leads early; ceiling gains weight for bench picks.</li><li>Hero RB is a preference, not a rule.</li><li>QB and TE are delayed unless elite-tier value is available.</li><li>Kicker and defense are held for the final rounds.</li></ul><div class="data-note">Prototype projections are a bundled demonstration dataset. Live Sleeper scoring and picks are loaded when available; projection-provider provenance and freshness are disclosed in the UI.</div></form></dialog>
+  <dialog id="mockDialog" class="wide-dialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">PRACTICE ROOM</span><h2>Sleeper mock drafts</h2></div><button value="cancel" class="close">×</button></div><p>Paste a Sleeper draft ID to follow a live mock. Mock picks, manual recovery, and evaluations stay separate from your real draft.</p><label>Draft ID<div class="inline-entry"><input id="mockDraftId" inputmode="numeric" placeholder="Paste Sleeper draft ID"><button id="startMock" class="primary">Start mock</button></div></label><div class="history-head"><b>Saved mock history</b><span id="historyCount"></span></div><div id="mockHistory" class="mock-history"></div></form></dialog>
   <script type="module" src="/app.js"></script>
 </body></html>

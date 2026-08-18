@@ -61,3 +61,38 @@ export function reconcilePicks(sleeper = [], manual = []) {
   for (const p of sleeper) byPick.set(Number(p.pick_no), { ...p, source:'sleeper' });
   return [...byPick.values()].sort((a,b) => a.pick_no - b.pick_no);
 }
+
+export function evaluateDraft(roster = [], picks = [], options = {}) {
+  const { counts, needs } = rosterNeeds(roster);
+  const projection = roster.reduce((sum, p) => sum + Number(p.projection || 0), 0);
+  const values = picks.filter(p => p.adp && Number(p.pick_no) - Number(p.adp) >= 12);
+  const reaches = picks.filter(p => p.adp && Number(p.adp) - Number(p.pick_no) >= 12);
+  const risks = roster.filter(p => p.status === 'IR' || Number(p.risk || 0) >= .18);
+  const missing = ['QB','RB','WR','TE'].reduce((n,pos)=>n+(needs[pos]||0),0);
+  const score = Math.round(Math.min(100,
+    Math.max(0, 38 - missing * 7) +
+    Math.min(24, values.length * 5 + Math.max(0, 10 - reaches.length * 3)) +
+    Math.min(18, roster.length * 1.2) + Math.max(0, 12 - risks.length * 2.5) +
+    Math.min(8, projection / 400)
+  ));
+  const grade = score >= 93?'A+':score >= 88?'A':score >= 83?'A-':score >= 78?'B+':score >= 72?'B':score >= 66?'B-':score >= 58?'C+':'C';
+  const strengths = [];
+  if ((counts.WR||0) >= 4) strengths.push('Deep receiver room');
+  if ((counts.RB||0) >= 3) strengths.push('Strong running-back depth');
+  if ((counts.QB||0) >= 1 && (counts.TE||0) >= 1) strengths.push('Core onesie positions covered');
+  if (values.length) strengths.push(`${values.length} major ADP value${values.length===1?'':'s'}`);
+  if (!strengths.length) strengths.push('Flexible foundation');
+  const weaknesses = Object.entries(needs).filter(([p,n])=>p!=='FLEX'&&n>0).map(([p])=>`Still needs ${p}`);
+  if (risks.length >= 2) weaknesses.push('Elevated injury or role risk');
+  if (reaches.length) weaknesses.push(`${reaches.length} notable reach${reaches.length===1?'':'es'}`);
+  const firstRB = picks.find(p=>p.position==='RB');
+  return {
+    score, grade, projection: Math.round(projection), strengths,
+    weaknesses: weaknesses.length?weaknesses:['No critical structural weakness detected'],
+    values: values.map(p=>p.player_name||p.name), reaches: reaches.map(p=>p.player_name||p.name),
+    risks: risks.map(p=>p.name),
+    strategy: firstRB && Number(firstRB.pick_no) <= 36 ? `Hero RB established with ${firstRB.player_name || firstRB.name}` : 'Hero RB was not forced; value dictated the build',
+    waiverPriorities: weaknesses.filter(x=>x.startsWith('Still needs')).map(x=>x.replace('Still needs ','')).slice(0,3),
+    generatedAt: options.generatedAt || new Date().toISOString()
+  };
+}

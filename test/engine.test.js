@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -36,4 +36,13 @@ test('do-not-draft players are excluded without mutating ranking data', () => {
 test('Sleeper confirmation wins over manual recovery at the same pick', () => {
   const merged=reconcilePicks([{pick_no:12,player_id:'confirmed'}],[{pick_no:12,player_id:'manual'},{pick_no:13,player_id:'next'}]);
   assert.deepEqual(merged.map(p=>[p.pick_no,p.player_id,p.source]),[[12,'confirmed','sleeper'],[13,'next','manual']]);
+});
+
+test('draft evaluation identifies values, reaches, and Hero RB execution', () => {
+  const roster=[player('anchor','RB'),player('w1','WR'),player('q1','QB')];
+  const evaluation=evaluateDraft(roster,[{pick_no:28,adp:12,position:'RB',player_name:'Anchor'},{pick_no:12,adp:28,position:'WR',player_name:'Reach'}],{generatedAt:'fixed'});
+  assert.deepEqual(evaluation.values,['Anchor']);
+  assert.deepEqual(evaluation.reaches,['Reach']);
+  assert.match(evaluation.strategy,/Hero RB established/);
+  assert.equal(evaluation.generatedAt,'fixed');
 });
