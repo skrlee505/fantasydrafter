@@ -22,6 +22,8 @@ Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party p
 - Four-round always-visible snake draft board, with the user's slot emphasized
 - Read-only sync from the configured Sleeper league and draft
 - Live Sleeper mock mode: paste a draft ID, detect the user's draft slot, and follow the mock with the same two-second recommendation loop
+- Complete active Sleeper player pool with Sleeper player IDs as the canonical draft identity; bundled projections are attached through suffix-tolerant aliases
+- Serialized lightweight pick polling that never overlaps the larger player-map/session refresh
 - Saved mock history with isolated picks, manual recovery state, status, timestamps, and reopenable evaluations
 - Mock draft reviews covering grade, roster structure, ADP values/reaches, Hero RB execution, risks, and remaining needs
 - Two-second live polling after connection, deduplication, offline retention, and automatic reconnection
@@ -43,7 +45,9 @@ Mock sessions are stored locally and kept separate from the configured real draf
 
 ## Data and architecture
 
-Sleeper public API is the source of truth for league configuration, roster positions, scoring, users, and picks. The app stores a timestamped scoring snapshot in browser storage. The bundled projection dataset is clearly labeled **demo projections**; it is not presented as a live commercial feed. Replace `public/data.js` with a licensed 2026 provider export while retaining the provider-neutral player fields and Sleeper-ID mapping boundary.
+Sleeper public API is the source of truth for league configuration, roster positions, scoring, users, player identity, and picks. The active player map is cached for one day, following Sleeper's guidance to download that large dataset sparingly. Sleeper IDs—not display names—determine whether a player is available. Projection names are suffix- and punctuation-normalized only once to attach the provider record to the canonical ID. Players without a mapped bundled projection remain visible with a clearly marked approximate ranking fallback.
+
+The app stores a timestamped scoring snapshot in browser storage. The bundled projection dataset is clearly labeled **demo projections**; it is not presented as a live commercial feed. Replace `public/data.js` with a licensed 2026 provider export while retaining the provider-neutral player fields and Sleeper-ID mapping boundary.
 
 Key boundaries:
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -45,4 +45,24 @@ test('draft evaluation identifies values, reaches, and Hero RB execution', () =>
   assert.deepEqual(evaluation.reaches,['Reach']);
   assert.match(evaluation.strategy,/Hero RB established/);
   assert.equal(evaluation.generatedAt,'fixed');
+});
+
+test('canonical names tolerate Sleeper suffix and punctuation differences', () => {
+  assert.equal(canonicalPlayerName('Brian Thomas Jr.'),canonicalPlayerName('Brian Thomas'));
+  assert.equal(canonicalPlayerName('De’Von Achane'),canonicalPlayerName("De'Von Achane"));
+});
+
+test('Sleeper IDs become canonical while preserving matched projections', () => {
+  const projection=player('local-btj','WR',{name:'Brian Thomas Jr.',projection:251,adp:14.6});
+  const pool=mergeSleeperPlayerPool([projection],{'1234':{player_id:'1234',full_name:'Brian Thomas',position:'WR',team:'JAX',active:true,search_rank:16}});
+  assert.equal(pool[0].id,'1234');
+  assert.equal(pool[0].name,'Brian Thomas');
+  assert.equal(pool[0].projection,251);
+  assert.equal(pool.filter(p=>canonicalPlayerName(p.name)==='brianthomas').length,1);
+});
+
+test('full Sleeper pool includes unprojected active players with disclosed fallback', () => {
+  const pool=mergeSleeperPlayerPool([],{'99':{full_name:'Depth Player',position:'RB',team:'SEA',active:true,search_rank:240}});
+  assert.equal(pool.length,1);
+  assert.equal(pool[0].projectionSource,'Sleeper rank fallback');
 });

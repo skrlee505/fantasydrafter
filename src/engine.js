@@ -1,5 +1,41 @@
 export const STARTERS = { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 1, K: 1, DEF: 1 };
 
+export function canonicalPlayerName(name = '') {
+  return String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/\b(jr|sr|ii|iii|iv|v)\.?$/i, '').replace(/[^a-z]/g, '');
+}
+
+export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
+  const positions = new Set(['QB','RB','WR','TE','K','DEF']);
+  const projectionByAlias = new Map(projections.map(p => [`${canonicalPlayerName(p.name)}:${p.position}`, p]));
+  const defenseByTeam = new Map(projections.filter(p=>p.position==='DEF').map(p=>[p.team,p]));
+  const matched = new Set();
+  const pool = [];
+  for (const [sleeperId, raw] of Object.entries(sleeperMap)) {
+    const listedPosition = raw.position || raw.fantasy_positions?.[0];
+    const position = listedPosition === 'DST' ? 'DEF' : listedPosition;
+    const name = raw.full_name || `${raw.first_name || ''} ${raw.last_name || ''}`.trim() || (position === 'DEF' ? raw.team : 'Unknown player');
+    if (!positions.has(position) || raw.active === false || !name) continue;
+    const projection = projectionByAlias.get(`${canonicalPlayerName(name)}:${position}`) || (position==='DEF' ? defenseByTeam.get(raw.team||sleeperId) : null);
+    if (projection) matched.add(projection.id);
+    const rank = Number(raw.search_rank);
+    const adp = Number.isFinite(rank) && rank > 0 ? rank : 999;
+    const baseline = { QB:310, RB:220, WR:210, TE:175, K:145, DEF:135 }[position];
+    pool.push(projection ? {
+      ...projection, id:sleeperId, sleeperId, name, team:raw.team || projection.team,
+      status:raw.injury_status || raw.status || projection.status, identitySource:'Sleeper ID', projectionSource:'Bundled projection'
+    } : {
+      id:sleeperId, sleeperId, name, team:raw.team || (position === 'DEF' ? sleeperId : 'FA'), position,
+      projection:Math.max(35,Math.round(baseline-Math.min(adp,300)*.55)), adp,
+      tier:Math.min(9,Math.max(1,Math.ceil(adp/24))), vor:Math.max(-30,25-adp*.2),
+      risk:raw.injury_status?.length ? .25 : .12, upside:Number(raw.years_exp) <= 1 ? .78 : .48,
+      bye:'—', status:raw.injury_status || raw.status || 'Active', identitySource:'Sleeper ID', projectionSource:'Sleeper rank fallback'
+    });
+  }
+  for (const projection of projections) if (!matched.has(projection.id)) pool.push({ ...projection, projectionSource:'Unmapped bundled projection' });
+  return pool.sort((a,b)=>a.adp-b.adp);
+}
+
 export function userPickNumbers(slot = 12, teams = 12, rounds = 15) {
   return Array.from({ length: rounds }, (_, i) => i % 2 === 0 ? i * teams + slot : (i + 1) * teams - slot + 1);
 }

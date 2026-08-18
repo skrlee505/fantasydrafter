@@ -1,22 +1,20 @@
 import { players, demoPicks } from './data.js';
-import { recommend, reconcilePicks, rosterNeeds, nextUserPick, evaluateDraft } from '/src/engine.js';
+import { recommend, reconcilePicks, rosterNeeds, nextUserPick, evaluateDraft, mergeSleeperPlayerPool } from '/src/engine.js';
 
 const LEAGUE_ID='1389736921957150721', REAL_DRAFT_ID='1389736921957150722', USER_ID='755351346516996096';
 const $=s=>document.querySelector(s);
 const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}};
 const esc=value=>String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const normalized=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
-const seedByName=new Map(players.map(p=>[normalized(p.name),p]));
 let sleeperPlayers=null;
 const state={
   mode:'demo',activeDraftId:null,draftStatus:'pre_draft',draftName:'Demo room',teams:12,rounds:15,userSlot:12,
-  picks:[],sleeperPicks:demoPicks,watch:read('draftside.watch',[]),dnd:read('draftside.dnd',[]),
-  history:read('draftside.mockHistory',[]),filter:'ALL',search:'',live:false,muted:false
+  picks:[],sleeperPicks:demoPicks,playerPool:players,watch:read('draftside.watch',[]),dnd:read('draftside.dnd',[]),
+  history:read('draftside.mockHistory',[]),filter:'ALL',search:'',live:false,muted:false,syncing:false,lastPickFingerprint:''
 };
 
 const sessionKey=()=>state.mode==='mock'?`mock.${state.activeDraftId}`:state.mode==='real'?'real':'demo';
 const manualKey=()=>`draftside.manualPicks.${sessionKey()}`;
-const playerById=id=>players.find(p=>p.id===id);
+const playerById=id=>state.playerPool.find(p=>p.id===id)||players.find(p=>p.id===id);
 const pickPlayer=pick=>playerById(pick?.player_id)||pick?.player_snapshot||null;
 const allPicks=()=>reconcilePicks(state.sleeperPicks,state.picks);
 const currentPick=()=>Math.min(state.teams*state.rounds,(allPicks().at(-1)?.pick_no||0)+1);
@@ -33,14 +31,14 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.remove('hi
 function beep(){if(state.muted)return;try{const a=new AudioContext(),o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=640;g.gain.value=.06;o.start();g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.15);o.stop(a.currentTime+.15)}catch{}}
 
 function renderRecommendations(){
-  const recs=recommend(players,context());
-  $('#recommendations').innerHTML=recs.map((p,i)=>`<article class="rec-card"><span class="rank">0${i+1}</span><div class="player-head"><div class="avatar ${posClass(p.position)}">${initials(p.name)}</div><div><b>${esc(p.name)}</b><span>${p.team} · ${p.position} · Bye ${p.bye}</span></div></div><div class="metrics"><div><b>${p.projection.toFixed(0)}</b><span>PROJ PTS</span></div><div><b>T${p.tier}</b><span>POSITION TIER</span></div><div><b>${p.availableNext}%</b><span>THERE NEXT</span></div></div><div class="fit"><b>${i===0?'Best roster fit':p.position==='RB'?'Anchor-back value':p.position==='WR'?'Receiver ceiling':'Tier value'}</b></div><ul class="pros"><li>${p.vor>30?'Elite value over replacement':'Strong value at this pick'}</li><li>${p.adp<currentPick()?`${Math.round(currentPick()-p.adp)} picks past ADP`:`Market ADP ${p.adp}`}</li></ul><div class="risk-tag">${p.risk>.18?'⚠ Elevated role / injury risk':p.adp<currentPick()-12?'↘ Major ADP value available':'Balanced production profile'}</div></article>`).join('');
+  const recs=recommend(state.playerPool,context());
+  $('#recommendations').innerHTML=recs.map((p,i)=>`<article class="rec-card"><span class="rank">0${i+1}</span><div class="player-head"><div class="avatar ${posClass(p.position)}">${initials(p.name)}</div><div><b>${esc(p.name)}</b><span>${p.team} · ${p.position} · Bye ${p.bye}</span></div></div><div class="metrics"><div><b>${p.projection.toFixed(0)}</b><span>PROJ PTS</span></div><div><b>T${p.tier}</b><span>POSITION TIER</span></div><div><b>${p.availableNext}%</b><span>THERE NEXT</span></div></div><div class="fit"><b>${i===0?'Best roster fit':p.position==='RB'?'Anchor-back value':p.position==='WR'?'Receiver ceiling':'Tier value'}</b></div><ul class="pros"><li>${p.vor>30?'Elite value over replacement':'Strong value at this pick'}</li><li>${p.adp<currentPick()?`${Math.round(currentPick()-p.adp)} picks past ADP`:`Market ADP ${p.adp}`}</li></ul><div class="risk-tag">${p.projectionSource==='Sleeper rank fallback'?'Approximate value · Sleeper rank fallback':p.risk>.18?'⚠ Elevated role / injury risk':p.adp<currentPick()-12?'↘ Major ADP value available':'Balanced production profile'}</div></article>`).join('');
 }
 function renderPlayers(){
   const drafted=new Set(draftedIds());
-  const pool=players.filter(p=>!drafted.has(p.id)).filter(p=>state.filter==='ALL'||p.position===state.filter).filter(p=>p.name.toLowerCase().includes(state.search)).sort((a,b)=>a.adp-b.adp);
-  $('#playerCount').textContent=`${pool.length} available · demo projections`;
-  $('#playerRows').innerHTML=pool.map((p,i)=>`<tr><td>${i+1}</td><td><b>${esc(p.name)}</b><small>${p.team} · ${p.status}</small></td><td><span class="pos ${posClass(p.position)}">${p.position}</span></td><td><b>${p.projection}</b></td><td>T${p.tier}</td><td class="${currentPick()-p.adp>=12?'fall':''}">${p.adp}${currentPick()-p.adp>=12?' ↓':''}</td><td>${p.bye}</td><td class="player-actions"><button class="star ${state.watch.includes(p.id)?'active':''}" data-watch="${p.id}" title="Watchlist">★</button><button class="ban ${state.dnd.includes(p.id)?'active':''}" data-dnd="${p.id}" title="Do not draft">⊘</button></td></tr>`).join('');
+  const pool=state.playerPool.filter(p=>!drafted.has(p.id)).filter(p=>state.filter==='ALL'||p.position===state.filter).filter(p=>p.name.toLowerCase().includes(state.search)).sort((a,b)=>a.adp-b.adp);
+  $('#playerCount').textContent=`${pool.length} available · ${sleeperPlayers?'complete Sleeper pool':'bundled preview'}`;
+  $('#playerRows').innerHTML=pool.map((p,i)=>`<tr><td>${i+1}</td><td><b>${esc(p.name)}</b><small>${p.team} · ${p.status}${p.projectionSource==='Sleeper rank fallback'?' · approx.':''}</small></td><td><span class="pos ${posClass(p.position)}">${p.position}</span></td><td><b>${p.projection}</b></td><td>T${p.tier}</td><td class="${currentPick()-p.adp>=12?'fall':''}">${p.adp>=999?'—':p.adp}${currentPick()-p.adp>=12?' ↓':''}</td><td>${p.bye}</td><td class="player-actions"><button class="star ${state.watch.includes(p.id)?'active':''}" data-watch="${p.id}" title="Watchlist">★</button><button class="ban ${state.dnd.includes(p.id)?'active':''}" data-dnd="${p.id}" title="Do not draft">⊘</button></td></tr>`).join('');
 }
 function renderRoster(){
   const roster=myRoster(),{counts,needs,filled}=rosterNeeds(roster),order=['QB','RB','RB','WR','WR','WR','TE','FLEX','K','DEF','BN','BN','BN','BN','BN'],used=new Set();
@@ -75,19 +73,30 @@ function renderHistory(){
   $('#historyCount').textContent=`${state.history.length} saved`;$('#mockHistory').innerHTML=state.history.length?state.history.map(h=>`<div class="history-card"><div><b>${esc(h.name||`Mock ${h.draftId}`)}</b><span>${new Date(h.updatedAt).toLocaleString()} · Pick ${h.userSlot} · ${h.picks?.length||0} picks</span></div><span class="status-pill">${esc(h.status||'saved')} · ${h.evaluation?.grade||'—'}</span><div class="history-actions"><button data-open="${h.draftId}">Open</button><button data-review="${h.draftId}">Review</button><button data-delete="${h.draftId}" title="Delete saved mock">Delete</button></div></div>`).join(''):'<div class="data-note">No saved mocks yet. Paste a draft ID above to begin.</div>';
 }
 async function loadSleeperPlayers(){
-  if(sleeperPlayers)return sleeperPlayers;const cache=await caches.open('draftside-sleeper-v1'),url='https://api.sleeper.app/v1/players/nfl',stamp=Number(localStorage.getItem('draftside.playersCachedAt')||0);let response=Date.now()-stamp<7*86400000?await cache.match(url):null;if(!response){response=await fetch(url);if(!response.ok)throw new Error('Player dataset unavailable');await cache.put(url,response.clone());localStorage.setItem('draftside.playersCachedAt',String(Date.now()))}sleeperPlayers=await response.json();return sleeperPlayers;
+  if(sleeperPlayers)return sleeperPlayers;const cache=await caches.open('draftside-sleeper-v2'),url='https://api.sleeper.app/v1/players/nfl?active=true',stamp=Number(localStorage.getItem('draftside.playersCachedAt')||0);let response=Date.now()-stamp<86400000?await cache.match(url):null;if(!response){response=await fetch(url,{cache:'no-store'});if(!response.ok)throw new Error('Player dataset unavailable');await cache.put(url,response.clone());localStorage.setItem('draftside.playersCachedAt',String(Date.now()))}sleeperPlayers=await response.json();state.playerPool=mergeSleeperPlayerPool(players,sleeperPlayers);return sleeperPlayers;
+}
+function snapshotPick(p,map={}){
+  const raw=map[p.player_id]||{},metadata=p.metadata||{},known=state.playerPool.find(player=>player.id===String(p.player_id));const name=raw.full_name||`${raw.first_name||metadata.first_name||''} ${raw.last_name||metadata.last_name||''}`.trim()||String(p.player_id),injury=raw.injury_status||metadata.injury_status;return{...p,player_id:String(p.player_id),source:'sleeper',player_snapshot:known||{id:String(p.player_id),name,position:raw.position||metadata.position,team:raw.team||metadata.team,projection:0,adp:999,tier:9,vor:-30,risk:(injury&&injury.length)?0.25:0.12,upside:.3,bye:'—',status:injury||raw.status||metadata.status||'Active',projectionSource:'No projection mapping'}};
+}
+function applyRawPicks(rawPicks,map=sleeperPlayers||{}){
+  const previous=state.sleeperPicks.length;state.sleeperPicks=rawPicks.map(p=>snapshotPick(p,map));state.lastPickFingerprint=rawPicks.map(p=>`${p.pick_no}:${p.player_id}`).join('|');const confirmed=new Set(state.sleeperPicks.map(p=>Number(p.pick_no)));state.picks=state.picks.filter(p=>!confirmed.has(Number(p.pick_no)));persist();saveMockSnapshot();render();if(rawPicks.length>previous){beep();toast(`${rawPicks.length-previous} new pick${rawPicks.length-previous===1?'':'s'} synced`)}
 }
 async function syncSleeper(options={}){
-  const targetId=state.mode==='mock'?state.activeDraftId:REAL_DRAFT_ID,btn=$('#refreshBtn');if(!targetId)return false;btn.textContent='Syncing…';btn.disabled=true;
+  const targetId=state.mode==='mock'?state.activeDraftId:REAL_DRAFT_ID,btn=$('#refreshBtn');if(!targetId||state.syncing)return false;state.syncing=true;btn.textContent='Syncing…';btn.disabled=true;
   try{
     const draftResponse=await fetch(`https://api.sleeper.app/v1/draft/${targetId}`);if(!draftResponse.ok)throw new Error('Draft ID not found');const draft=await draftResponse.json();if(!draft?.draft_id)throw new Error('Draft ID not found');
-    const [rawPicks,map]=await Promise.all([fetch(`https://api.sleeper.app/v1/draft/${targetId}/picks`).then(r=>{if(!r.ok)throw new Error('Picks unavailable');return r.json()}),loadSleeperPlayers()]);
+    const rawPicks=await fetch(`https://api.sleeper.app/v1/draft/${targetId}/picks`,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('Picks unavailable');return r.json()});
     if(state.mode!=='mock'){state.mode='real';state.activeDraftId=REAL_DRAFT_ID;if(draft.league_id){const league=await fetch(`https://api.sleeper.app/v1/league/${draft.league_id||LEAGUE_ID}`).then(r=>r.json());localStorage.setItem('draftside.scoringSnapshot',JSON.stringify({savedAt:new Date().toISOString(),scoring:league.scoring_settings,roster:league.roster_positions}))}}
     state.draftStatus=draft.status||'drafting';state.draftName=state.mode==='mock'?(draft.metadata?.name||`Sleeper mock ${targetId.slice(-6)}`):'Fantasy Foot🅱️oolers 🏈';state.teams=Number(draft.settings?.teams)||12;state.rounds=Number(draft.settings?.rounds)||15;state.userSlot=Number(draft.draft_order?.[USER_ID])||state.userSlot||12;
-    state.sleeperPicks=rawPicks.map(p=>{const sp=map[p.player_id]||{},name=sp.full_name||`${sp.first_name||''} ${sp.last_name||''}`.trim()||p.metadata?.first_name+' '+p.metadata?.last_name,seed=seedByName.get(normalized(name));return{...p,player_id:seed?.id||p.player_id,source:'sleeper',player_snapshot:seed||{id:p.player_id,name,position:sp.position||p.metadata?.position,team:sp.team||p.metadata?.team,projection:0,risk:0,status:sp.status||'Active'}}});
-    state.live=true;const confirmed=new Set(state.sleeperPicks.map(p=>Number(p.pick_no)));state.picks=state.picks.filter(p=>!confirmed.has(Number(p.pick_no)));persist();saveMockSnapshot();render();$('#syncTime').textContent=`Synced ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'})}`;$('#offlineBanner').classList.add('hidden');if(!options.quiet)toast(`${state.mode==='mock'?'Mock':'Sleeper'} synced · ${rawPicks.length} picks`);return true;
-  }catch(e){$('#offlineBanner').classList.remove('hidden');if(!options.quiet)toast(e.message||'Sleeper unavailable — saved state retained');return false}finally{btn.textContent='↻ Sync draft';btn.disabled=false}
+    state.live=true;applyRawPicks(rawPicks);$('#syncTime').textContent=`Picks synced ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'})}`;$('#offlineBanner').classList.add('hidden');if(!options.quiet)toast(`${state.mode==='mock'?'Mock':'Sleeper'} connected · ${rawPicks.length} picks`);
+    loadSleeperPlayers().then(map=>{state.sleeperPicks=state.sleeperPicks.map(p=>snapshotPick(p,map));saveMockSnapshot();render()}).catch(()=>toast('Using partial player data; pick polling remains live'));return true;
+  }catch(e){$('#offlineBanner').classList.remove('hidden');if(!options.quiet)toast(e.message||'Sleeper unavailable — saved state retained');return false}finally{state.syncing=false;btn.textContent='↻ Sync draft';btn.disabled=false}
 }
+async function pollPicks(){
+  if(!state.live||state.syncing)return;const targetId=state.mode==='mock'?state.activeDraftId:REAL_DRAFT_ID;if(!targetId)return;state.syncing=true;const started=performance.now();
+  try{const response=await fetch(`https://api.sleeper.app/v1/draft/${targetId}/picks`,{cache:'no-store'});if(!response.ok)throw new Error();const raw=await response.json(),fingerprint=raw.map(p=>`${p.pick_no}:${p.player_id}`).join('|');if(fingerprint!==state.lastPickFingerprint)applyRawPicks(raw);$('#syncTime').textContent=`Picks ${Math.round(performance.now()-started)}ms · ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'})}`;$('#offlineBanner').classList.add('hidden')}catch{$('#syncTime').textContent='Pick sync retrying…';$('#offlineBanner').classList.remove('hidden')}finally{state.syncing=false}
+}
+async function pollLoop(){const started=performance.now();await pollPicks();setTimeout(pollLoop,Math.max(250,2000-(performance.now()-started)))}
 async function openMock(id,{reviewOnly=false}={}){
   const clean=String(id||'').trim();if(!/^\d{10,25}$/.test(clean)){toast('Enter a valid numeric Sleeper draft ID');return}const saved=state.history.find(x=>x.draftId===clean);state.mode='mock';state.activeDraftId=clean;state.picks=read(`draftside.manualPicks.mock.${clean}`,[]);state.live=false;
   if(saved){state.draftName=saved.name;state.draftStatus=saved.status;state.teams=saved.teams;state.rounds=saved.rounds;state.userSlot=saved.userSlot;state.sleeperPicks=saved.picks||[];render()}
@@ -96,9 +105,9 @@ async function openMock(id,{reviewOnly=false}={}){
 
 $('#positionFilters').addEventListener('click',e=>{if(!e.target.dataset.pos)return;state.filter=e.target.dataset.pos;document.querySelectorAll('.chips button').forEach(b=>b.classList.toggle('active',b===e.target));renderPlayers()});
 $('#search').addEventListener('input',e=>{state.search=e.target.value.toLowerCase();renderPlayers()});$('#playerRows').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const list=b.dataset.watch?state.watch:state.dnd,id=b.dataset.watch||b.dataset.dnd,i=list.indexOf(id);i>=0?list.splice(i,1):list.push(id);persist();render()});
-$('#manualBtn').onclick=()=>{$('#manualNumber').value=currentPick();$('#manualPlayer').innerHTML=players.filter(p=>!draftedIds().includes(p.id)).map(p=>`<option value="${p.id}">${esc(p.name)} — ${p.position}</option>`).join('');$('#manualDialog').showModal()};
+$('#manualBtn').onclick=()=>{$('#manualNumber').value=currentPick();$('#manualPlayer').innerHTML=state.playerPool.filter(p=>!draftedIds().includes(p.id)).sort((a,b)=>a.adp-b.adp).map(p=>`<option value="${p.id}">${esc(p.name)} — ${p.position}</option>`).join('');$('#manualDialog').showModal()};
 $('#saveManual').onclick=e=>{e.preventDefault();const no=Number($('#manualNumber').value);state.picks=state.picks.filter(p=>Number(p.pick_no)!==no);state.picks.push({pick_no:no,round:Math.ceil(no/state.teams),draft_slot:slotForPick(no),player_id:$('#manualPlayer').value,source:'manual'});persist();saveMockSnapshot();$('#manualDialog').close();render();beep();toast(`Manual pick ${no} saved to ${state.mode==='mock'?'this mock':'the draft'}`)};
 $('#undoBtn').onclick=()=>{if(!state.picks.length)return toast('No manual picks to undo');state.picks.sort((a,b)=>a.pick_no-b.pick_no);const removed=state.picks.pop();persist();saveMockSnapshot();render();toast(`Manual pick ${removed.pick_no} removed`)};$('#whyBtn').onclick=()=>$('#whyDialog').showModal();
 $('#modeBtn').onclick=()=>{renderHistory();$('#mockDialog').showModal()};$('#startMock').onclick=e=>{e.preventDefault();openMock($('#mockDraftId').value)};$('#mockHistory').onclick=e=>{const b=e.target.closest('button');if(!b)return;b.dataset.open&&openMock(b.dataset.open);b.dataset.review&&openMock(b.dataset.review,{reviewOnly:true});if(b.dataset.delete){const id=b.dataset.delete;state.history=state.history.filter(h=>h.draftId!==id);localStorage.removeItem(`draftside.manualPicks.mock.${id}`);persist();renderHistory();toast('Saved mock deleted')}};
-$('#refreshBtn').onclick=()=>syncSleeper();$('#muteBtn').onclick=()=>{state.muted=!state.muted;$('#muteBtn').textContent=state.muted?'Muted':'◖))';toast(state.muted?'Alerts muted':'Sound alerts enabled')};window.addEventListener('online',()=>{$('#offlineBanner').classList.add('hidden');state.live&&syncSleeper({quiet:true})});window.addEventListener('offline',()=>$('#offlineBanner').classList.remove('hidden'));setInterval(()=>state.live&&syncSleeper({quiet:true}),2000);
-let seconds=107;setInterval(()=>{seconds=Math.max(0,seconds-1);$('#clock').textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`},1000);render();
+$('#refreshBtn').onclick=()=>syncSleeper();$('#muteBtn').onclick=()=>{state.muted=!state.muted;$('#muteBtn').textContent=state.muted?'Muted':'◖))';toast(state.muted?'Alerts muted':'Sound alerts enabled')};window.addEventListener('online',()=>{$('#offlineBanner').classList.add('hidden');state.live&&pollPicks()});window.addEventListener('offline',()=>$('#offlineBanner').classList.remove('hidden'));
+let seconds=107;setInterval(()=>{seconds=Math.max(0,seconds-1);$('#clock').textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`},1000);render();pollLoop();
