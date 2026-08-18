@@ -19,6 +19,8 @@ Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party p
 - Explicit penalties for an unnecessary second early quarterback
 - Hero RB preference, early-round QB/TE discipline, late K/DEF logic, risk and upside weighting
 - Multiple CSV ranking/projection sources with enable controls and adjustable blend weights
+- Durable on-Mac source library that survives app builds and browser-storage changes
+- Separate strategy-article library with transparent, capped recommendation adjustments
 - Best-available search and position filters
 - Persistent watchlist and do-not-draft list
 - Live roster slots, needs, strengths, and grade
@@ -29,7 +31,7 @@ Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party p
 - Serialized lightweight pick polling that never overlaps the larger player-map/session refresh
 - Saved mock history with isolated picks, manual recovery state, status, timestamps, and reopenable evaluations
 - Mock draft reviews covering starter quality, coverage, depth, draft value, bench upside, risk, Hero RB execution, and remaining needs
-- Two-second live polling after connection, deduplication, offline retention, and automatic reconnection
+- Automatic Sleeper connection on startup with 750ms serialized pick polling, deduplication, offline retention, and automatic reconnection
 - Manual pick entry/correction and undo, with manual state visually distinct
 - Timestamped league-scoring snapshot and a locally cached player-ID map
 - Visual and browser-audio alerts with mute control
@@ -46,7 +48,15 @@ Open **Ranking sources** and import one or more CSV files. Each file needs:
 
 Optional recognized columns are `rank`/`ECR`, `team`, `ADP`, `projection`/`points`, and `tier`. Common capitalization and header variations are accepted, as are quoted player names containing commas.
 
-Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. If a sheet contains only ranks, the built-in baseline continues to provide projections and other missing fields. Imported source data is stored locally in the browser.
+Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. Enabled uploaded sources define which players are eligible for recommendations, preventing inactive legacy records from leaking out of fallback data. If a sheet contains only ranks, the active Sleeper player record and built-in baseline continue to provide missing projections and other fields.
+
+Imported sources are saved in `.draftside-data/source-library.json` on this Mac and are also mirrored in browser storage as a fallback. The local file is ignored by Git, persists across app builds, and is never uploaded to GitHub. Existing browser-saved imports migrate into this library the first time the updated server starts.
+
+## Import strategy articles
+
+Open **Strategy library** to import a `.txt`, `.md`, or `.html` article, or paste article text directly. Strategy articles remain separate from player rankings.
+
+Draftside detects a deliberately limited set of guidance: Hero/Zero RB, quarterback and tight-end timing, useful stacks, rookie upside, and handcuff value. Detected signals are displayed for review, can be enabled or disabled, and have adjustable weights. Their effect on any player is capped and appears directly on the recommendation card. Unrecognized prose is stored but does not silently change the decision engine.
 
 ## Practice with a Sleeper mock
 
@@ -59,7 +69,7 @@ Mock sessions are stored locally and kept separate from the configured real draf
 
 ## Data and architecture
 
-Sleeper public API is the source of truth for league configuration, roster positions, scoring, users, player identity, and picks. The active player map is cached for one day, following Sleeper's guidance to download that large dataset sparingly. Sleeper IDs—not display names—determine whether a player is available. Projection names are suffix- and punctuation-normalized only once to attach the provider record to the canonical ID. Players without a mapped bundled projection remain visible with a clearly marked approximate ranking fallback.
+Sleeper public API is the source of truth for league configuration, roster positions, scoring, users, player identity, and picks. The app connects automatically on startup and polls picks every 750ms without overlapping requests. The active player map is cached for one day, following Sleeper's guidance to download that large dataset sparingly. Sleeper IDs—not display names—determine whether a player is available. Inactive Sleeper records and unmatched bundled projections are excluded from the live player pool. Projection names are suffix- and punctuation-normalized only once to attach the provider record to the canonical ID.
 
 The app stores a timestamped scoring snapshot in browser storage. The bundled projection dataset is clearly labeled **demo projections**; it is not presented as a live commercial feed. CSV imports are attached through the same normalized player-identity boundary, so outside rankings can improve the recommendations without replacing application code.
 
