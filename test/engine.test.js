@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -24,6 +24,12 @@ test('early recommendation delays kicker and defense', () => {
 
 test('early recommendation does not let raw QB points overwhelm roster value', () => {
   const result=recommend([player('rb','RB',{projection:247,vor:31,tier:2,adp:12}),player('qb','QB',{projection:352,vor:58,tier:1,adp:22})],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[]});
+  assert.equal(result[0].id,'rb');
+});
+
+test('recommendation avoids a second early quarterback', () => {
+  const roster=[player('starter-qb','QB',{projection:315,vor:42})];
+  const result=recommend([player('rb','RB',{projection:205,vor:18,adp:62}),player('qb','QB',{projection:350,vor:60,tier:1,adp:55})],{roster,currentPick:60,nextPick:61,draftedIds:[],doNotDraft:[]});
   assert.equal(result[0].id,'rb');
 });
 
@@ -65,4 +71,20 @@ test('full Sleeper pool includes unprojected active players with disclosed fallb
   const pool=mergeSleeperPlayerPool([],{'99':{full_name:'Depth Player',position:'RB',team:'SEA',active:true,search_rank:240}});
   assert.equal(pool.length,1);
   assert.equal(pool[0].projectionSource,'Sleeper rank fallback');
+});
+
+test('CSV ranking sources parse common columns and blend by weight', () => {
+  const first=parseRankingCsv('Player,Pos,Rank,Projection\n"Brian Thomas, Jr.",WR,8,265','Source A');
+  const second=parseRankingCsv('Name,Position,ECR,Points\n"Brian Thomas, Jr.",WR,12,245','Source B');
+  first.weight=3;second.weight=1;
+  const blended=applyRankingSources([player('btj','WR',{name:'Brian Thomas, Jr.',projection:200,adp:20})],[first,second])[0];
+  assert.equal(blended.expertRank,9);
+  assert.equal(blended.projection,260);
+  assert.equal(blended.rankingSourceCount,2);
+});
+
+test('partial draft evaluation withholds a misleading final letter grade', () => {
+  const evaluation=evaluateDraft([player('r1','RB'),player('w1','WR')],[{pick_no:12,adp:12,position:'RB'}],{generatedAt:'fixed'});
+  assert.equal(evaluation.grade,'—');
+  assert.match(evaluation.confidence,/In progress/);
 });

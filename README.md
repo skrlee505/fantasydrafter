@@ -15,17 +15,20 @@ Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party p
 ## What works
 
 - Five ranked, explained recommendations that react to every pick
+- Position-adjusted recommendation scoring so raw quarterback points cannot overwhelm RB/WR/TE roster value
+- Explicit penalties for an unnecessary second early quarterback
 - Hero RB preference, early-round QB/TE discipline, late K/DEF logic, risk and upside weighting
+- Multiple CSV ranking/projection sources with enable controls and adjustable blend weights
 - Best-available search and position filters
 - Persistent watchlist and do-not-draft list
 - Live roster slots, needs, strengths, and grade
-- Four-round always-visible snake draft board, with the user's slot emphasized
+- Full scrollable snake draft board beside the recommendations, with the user's slot emphasized
 - Read-only sync from the configured Sleeper league and draft
 - Live Sleeper mock mode: paste a draft ID, detect the user's draft slot, and follow the mock with the same two-second recommendation loop
 - Complete active Sleeper player pool with Sleeper player IDs as the canonical draft identity; bundled projections are attached through suffix-tolerant aliases
 - Serialized lightweight pick polling that never overlaps the larger player-map/session refresh
 - Saved mock history with isolated picks, manual recovery state, status, timestamps, and reopenable evaluations
-- Mock draft reviews covering grade, roster structure, ADP values/reaches, Hero RB execution, risks, and remaining needs
+- Mock draft reviews covering starter quality, coverage, depth, draft value, bench upside, risk, Hero RB execution, and remaining needs
 - Two-second live polling after connection, deduplication, offline retention, and automatic reconnection
 - Manual pick entry/correction and undo, with manual state visually distinct
 - Timestamped league-scoring snapshot and a locally cached player-ID map
@@ -33,6 +36,17 @@ Open <http://127.0.0.1:4173> in current Chrome. No install step or third-party p
 - Responsive single-window design for laptop and desktop
 
 The initial screen is deliberately populated with representative demonstration projections so the decision workflow can be evaluated before the 2026 projection feed is finalized. Press **Sync draft** to connect the configured real draft. Unmapped live players remain on the board by pick number rather than being incorrectly matched.
+
+## Import ranking sheets
+
+Open **Ranking sources** and import one or more CSV files. Each file needs:
+
+- `player` or `name`
+- `position` or `pos`
+
+Optional recognized columns are `rank`/`ECR`, `team`, `ADP`, `projection`/`points`, and `tier`. Common capitalization and header variations are accepted, as are quoted player names containing commas.
+
+Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. If a sheet contains only ranks, the built-in baseline continues to provide projections and other missing fields. Imported source data is stored locally in the browser.
 
 ## Practice with a Sleeper mock
 
@@ -47,7 +61,9 @@ Mock sessions are stored locally and kept separate from the configured real draf
 
 Sleeper public API is the source of truth for league configuration, roster positions, scoring, users, player identity, and picks. The active player map is cached for one day, following Sleeper's guidance to download that large dataset sparingly. Sleeper IDs—not display names—determine whether a player is available. Projection names are suffix- and punctuation-normalized only once to attach the provider record to the canonical ID. Players without a mapped bundled projection remain visible with a clearly marked approximate ranking fallback.
 
-The app stores a timestamped scoring snapshot in browser storage. The bundled projection dataset is clearly labeled **demo projections**; it is not presented as a live commercial feed. Replace `public/data.js` with a licensed 2026 provider export while retaining the provider-neutral player fields and Sleeper-ID mapping boundary.
+The app stores a timestamped scoring snapshot in browser storage. The bundled projection dataset is clearly labeled **demo projections**; it is not presented as a live commercial feed. CSV imports are attached through the same normalized player-identity boundary, so outside rankings can improve the recommendations without replacing application code.
+
+Draft review grades are withheld until all 15 picks are complete. The final score is a projection-based structural assessment, not a prediction of league finish, and shows its component scores and data-confidence note. Better projection inputs improve both recommendations and evaluation accuracy.
 
 Key boundaries:
 

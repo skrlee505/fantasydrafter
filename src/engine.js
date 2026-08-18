@@ -5,6 +5,84 @@ export function canonicalPlayerName(name = '') {
     .replace(/\b(jr|sr|ii|iii|iv|v)\.?$/i, '').replace(/[^a-z]/g, '');
 }
 
+const numeric = value => {
+  const parsed = Number(String(value ?? '').replace(/[$,%]/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+function parseCsvRows(text = '') {
+  const rows = [];
+  let row = [], value = '', quoted = false;
+  for (let i = 0; i < String(text).length; i++) {
+    const char = text[i], next = text[i + 1];
+    if (char === '"' && quoted && next === '"') { value += '"'; i++; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === ',' && !quoted) { row.push(value.trim()); value = ''; }
+    else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && next === '\n') i++;
+      row.push(value.trim()); value = '';
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+    } else value += char;
+  }
+  row.push(value.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+export function parseRankingCsv(text, sourceName = 'Imported rankings') {
+  const rows = parseCsvRows(String(text || '').replace(/^\uFEFF/, ''));
+  if (rows.length < 2) throw new Error('The CSV needs a header row and at least one player.');
+  const headers = rows[0].map(h => canonicalPlayerName(h));
+  const aliases = {
+    name:['player','playername','name','fullname'], position:['position','pos'], team:['team','nflteam'],
+    rank:['rank','rk','overall','overallrank','ecr'], adp:['adp','averageDraftPosition'],
+    projection:['projection','projectedpoints','proj','points','fantasypoints'], tier:['tier']
+  };
+  const index = Object.fromEntries(Object.entries(aliases).map(([key,names]) => [key, headers.findIndex(h => names.map(canonicalPlayerName).includes(h))]));
+  if (index.name < 0 || index.position < 0) throw new Error('CSV headers must include player/name and position/pos.');
+  const entries = rows.slice(1).map((cells, offset) => {
+    const name = cells[index.name]?.trim();
+    const position = String(cells[index.position] || '').trim().toUpperCase().replace('DST','DEF');
+    if (!name || !['QB','RB','WR','TE','K','DEF'].includes(position)) return null;
+    return {
+      key:`${canonicalPlayerName(name)}:${position}`, name, position, team:index.team >= 0 ? cells[index.team]?.trim().toUpperCase() : '',
+      rank:index.rank >= 0 ? numeric(cells[index.rank]) : offset + 1,
+      adp:index.adp >= 0 ? numeric(cells[index.adp]) : null,
+      projection:index.projection >= 0 ? numeric(cells[index.projection]) : null,
+      tier:index.tier >= 0 ? numeric(cells[index.tier]) : null
+    };
+  }).filter(Boolean);
+  if (!entries.length) throw new Error('No supported fantasy players were found in the CSV.');
+  return { id:`source-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Imported rankings', weight:1, enabled:true, entries };
+}
+
+export function applyRankingSources(players = [], sources = []) {
+  const active = sources.filter(source => source.enabled !== false && Number(source.weight) > 0);
+  if (!active.length) return players.map(player => ({ ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 }));
+  const maps = active.map(source => ({ source, entries:new Map((source.entries || []).map(entry => [entry.key, entry])) }));
+  return players.map(player => {
+    const key = `${canonicalPlayerName(player.name)}:${player.position}`;
+    const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key) })).filter(match => match.entry);
+    if (!matches.length) return { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 };
+    const blend = field => {
+      const usable = matches.filter(({entry}) => Number.isFinite(Number(entry[field])));
+      if (!usable.length) return null;
+      const total = usable.reduce((sum,{source}) => sum + Number(source.weight || 1), 0);
+      return usable.reduce((sum,{source,entry}) => sum + Number(entry[field]) * Number(source.weight || 1), 0) / total;
+    };
+    const rank=blend('rank'), adp=blend('adp'), projection=blend('projection'), tier=blend('tier');
+    return {
+      ...player,
+      ...(adp != null ? { adp } : {}), ...(projection != null ? { projection } : {}), ...(tier != null ? { tier:Math.max(1,Math.round(tier)) } : {}),
+      expertRank:rank ?? player.expertRank ?? player.adp,
+      rankingSourceCount:matches.length,
+      projectionSource:projection != null ? `${matches.map(m=>m.source.name).join(' + ')} blend` : player.projectionSource,
+      rankingSourceNames:matches.map(m=>m.source.name)
+    };
+  });
+}
+
 export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
   const positions = new Set(['QB','RB','WR','TE','K','DEF']);
   const projectionByAlias = new Map(projections.map(p => [`${canonicalPlayerName(p.name)}:${p.position}`, p]));
@@ -69,19 +147,29 @@ export function scorePlayer(player, context) {
   const round = Math.ceil(currentPick / 12);
   const starterNeed = needs[player.position] || (['RB','WR','TE'].includes(player.position) ? needs.FLEX : 0);
   const scarcity = Math.max(0, 6 - player.tier) * 2.3;
-  const vor = player.vor ?? (player.projection - 150);
+  const replacement = { QB:270, RB:145, WR:155, TE:120, K:115, DEF:105 }[player.position] || 150;
+  const positionProjection = Math.max(-12, Math.min(30, (Number(player.projection || 0) - replacement) * .12));
+  const vor = Math.max(-35, Math.min(65, player.vor ?? ((Number(player.projection || 0) - replacement) * .45)));
   const adpValue = Math.max(-12, Math.min(18, (currentPick - player.adp) * 0.65));
+  const expertRank = Number(player.expertRank);
+  const expertValue = Number.isFinite(expertRank) ? Math.max(-10, Math.min(14, (currentPick - expertRank) * .45)) : 0;
   const risk = (player.risk || 0) * 12;
-  const needBonus = starterNeed > 0 ? 14 : 0;
+  const needBonusByPosition = { QB:3, RB:14, WR:14, TE:9, K:0, DEF:0 };
+  const needBonus = starterNeed > 0 ? needBonusByPosition[player.position] || 0 : 0;
   const lateUpside = round >= 9 ? (player.upside || 0) * 11 : (player.upside || 0) * 4;
   const heroRB = player.position === 'RB' && !(counts.RB > 0) && round <= 3 ? 15 : 0;
-  const waitPenalty = (player.position === 'QB' && round < 4 ? (player.tier === 1 ? 70 : 82) : player.position === 'QB' && round < 5 && player.tier > 1 ? 14 : 0)
-    + (player.position === 'TE' && round < 5 && player.tier > 1 ? 11 : 0)
+  const qbWait = player.position === 'QB' ? (round <= 5 ? (player.tier === 1 ? 20 : 38) : round <= 7 ? 8 : 0) : 0;
+  const duplicateQb = player.position === 'QB' && (counts.QB || 0) >= 1 ? (round < 11 ? 48 : 24) : 0;
+  const duplicateTe = player.position === 'TE' && (counts.TE || 0) >= 1 ? (round < 10 ? 24 : 10) : 0;
+  const saturatedSkill = (player.position === 'RB' && (counts.RB || 0) >= 5) || (player.position === 'WR' && (counts.WR || 0) >= 6) ? 15 : 0;
+  const waitPenalty = qbWait + duplicateQb + duplicateTe + saturatedSkill
+    + (player.position === 'TE' && round < 5 && player.tier > 1 ? 15 : 0)
     + (['K','DEF'].includes(player.position) && round < 14 ? 80 : 0);
   const stack = roster.some(p => p.team === player.team && ((p.position === 'QB' && ['WR','TE'].includes(player.position)) || (player.position === 'QB' && ['WR','TE'].includes(p.position)))) ? 3 : 0;
   const irStash = player.status === 'IR' && roster.length < 14 && player.projection > 175 ? 4 : 0;
   const urgency = Math.max(0, Math.min(12, (nextPick - player.adp) * .25));
-  return player.projection * .32 + vor * .45 + scarcity + adpValue + needBonus + lateUpside + heroRB + stack + irStash + urgency - risk - waitPenalty;
+  const fallbackPenalty = ['Sleeper rank fallback','No projection mapping'].includes(player.projectionSource) ? 20 : 0;
+  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateUpside + heroRB + stack + irStash + urgency - risk - waitPenalty - fallbackPenalty;
 }
 
 export function recommend(players, context, count = 5) {
@@ -105,12 +193,23 @@ export function evaluateDraft(roster = [], picks = [], options = {}) {
   const reaches = picks.filter(p => p.adp && Number(p.adp) - Number(p.pick_no) >= 12);
   const risks = roster.filter(p => p.status === 'IR' || Number(p.risk || 0) >= .18);
   const missing = ['QB','RB','WR','TE'].reduce((n,pos)=>n+(needs[pos]||0),0);
-  const score = Math.round(Math.min(100,
-    Math.max(0, 38 - missing * 7) +
-    Math.min(24, values.length * 5 + Math.max(0, 10 - reaches.length * 3)) +
-    Math.min(18, roster.length * 1.2) + Math.max(0, 12 - risks.length * 2.5) +
-    Math.min(8, projection / 400)
-  ));
+  const starterTargets={QB:1,RB:2,WR:3,TE:1,K:1,DEF:1};
+  const baseStarterCount=Object.entries(starterTargets).reduce((sum,[pos,target])=>sum+Math.min(target,counts[pos]||0),0);
+  const flexFilled=Math.min(1,Math.max(0,(counts.RB||0)+(counts.WR||0)+(counts.TE||0)-6));
+  const starterCoverage=(baseStarterCount+flexFilled)/10*100;
+  const starterCandidates=Object.entries(starterTargets).flatMap(([pos,target])=>roster.filter(p=>p.position===pos).sort((a,b)=>(b.vor||0)-(a.vor||0)).slice(0,target));
+  const flexCandidate=roster.filter(p=>['RB','WR','TE'].includes(p.position)&&!starterCandidates.includes(p)).sort((a,b)=>(b.vor||0)-(a.vor||0))[0];
+  if(flexCandidate)starterCandidates.push(flexCandidate);
+  const starterQuality=starterCandidates.length ? starterCandidates.reduce((sum,p)=>sum+Math.max(25,Math.min(100,48+Number(p.vor||0)*.9)),0)/starterCandidates.length : 0;
+  const targetDepth={QB:1,RB:4,WR:5,TE:1,K:1,DEF:1};
+  const depthCoverage=Object.entries(targetDepth).reduce((sum,[pos,target])=>sum+Math.min(target,counts[pos]||0),0)/13*100;
+  const surpluses=picks.filter(p=>Number.isFinite(Number(p.adp))).map(p=>Number(p.pick_no)-Number(p.adp));
+  const averageSurplus=surpluses.length?surpluses.reduce((a,b)=>a+b,0)/surpluses.length:0;
+  const valueScore=Math.max(20,Math.min(100,62+averageSurplus*1.8-reaches.length*3));
+  const bench=roster.filter(p=>!starterCandidates.includes(p));
+  const benchUpside=bench.length?bench.reduce((sum,p)=>sum+Number(p.upside||.45),0)/bench.length*100:45;
+  const riskScore=Math.max(20,100-(roster.length?roster.reduce((sum,p)=>sum+Number(p.risk||.12),0)/roster.length*120:20));
+  const score = Math.round(Math.max(0,Math.min(100,starterQuality*.30+starterCoverage*.20+depthCoverage*.15+valueScore*.20+benchUpside*.10+riskScore*.05)));
   const grade = score >= 93?'A+':score >= 88?'A':score >= 83?'A-':score >= 78?'B+':score >= 72?'B':score >= 66?'B-':score >= 58?'C+':'C';
   const strengths = [];
   if ((counts.WR||0) >= 4) strengths.push('Deep receiver room');
@@ -123,12 +222,14 @@ export function evaluateDraft(roster = [], picks = [], options = {}) {
   if (reaches.length) weaknesses.push(`${reaches.length} notable reach${reaches.length===1?'':'es'}`);
   const firstRB = picks.find(p=>p.position==='RB');
   return {
-    score, grade, projection: Math.round(projection), strengths,
+    score, grade:roster.length >= 15 ? grade : '—', provisionalGrade:grade, projection: Math.round(projection), strengths,
     weaknesses: weaknesses.length?weaknesses:['No critical structural weakness detected'],
     values: values.map(p=>p.player_name||p.name), reaches: reaches.map(p=>p.player_name||p.name),
     risks: risks.map(p=>p.name),
     strategy: firstRB && Number(firstRB.pick_no) <= 36 ? `Hero RB established with ${firstRB.player_name || firstRB.name}` : 'Hero RB was not forced; value dictated the build',
     waiverPriorities: weaknesses.filter(x=>x.startsWith('Still needs')).map(x=>x.replace('Still needs ','')).slice(0,3),
+    dimensions:{starterQuality:Math.round(starterQuality),starterCoverage:Math.round(starterCoverage),depth:Math.round(depthCoverage),draftValue:Math.round(valueScore),benchUpside:Math.round(benchUpside),risk:Math.round(riskScore)},
+    confidence:roster.length >= 15 ? (roster.some(p=>['Sleeper rank fallback','No projection mapping'].includes(p.projectionSource))?'Limited by fallback player data':'Projection-based; review source freshness') : `In progress · ${roster.length}/15 picks`,
     generatedAt: options.generatedAt || new Date().toISOString()
   };
 }
