@@ -73,6 +73,32 @@ test('full Sleeper pool includes unprojected active players with disclosed fallb
   assert.equal(pool[0].projectionSource,'Sleeper rank fallback');
 });
 
+test('Sleeper API baseline supplies format-specific current ADP and projections', () => {
+  const pool=mergeSleeperPlayerPool([],{
+    '4034':{full_name:'Christian McCaffrey',position:'RB',team:'SF',active:true,search_rank:5},
+    '9999':{full_name:'Historical Player',position:'WR',team:'SEA',active:true,search_rank:90}
+  },{
+    season:'2026',previousSeason:'2025',
+    projections:[
+      {player_id:'4034',stats:{adp_ppr:5.4,adp_half_ppr:5.5,pts_ppr:291,pts_half_ppr:256}},
+      {player_id:'9999',stats:{adp_half_ppr:88}}
+    ],
+    stats:[
+      {player_id:'4034',stats:{pts_half_ppr:365.6}},
+      {player_id:'9999',stats:{pts_half_ppr:180}}
+    ]
+  },{scoringFormat:'half_ppr'});
+  const current=pool.find(item=>item.id==='4034'),historical=pool.find(item=>item.id==='9999');
+  assert.equal(current.adp,5.5);
+  assert.equal(current.projection,256);
+  assert.equal(current.projectionSource,'Sleeper 2026 half_ppr projection');
+  assert.equal(current.baselineProjectionTrusted,true);
+  assert.equal(historical.adp,88);
+  assert.equal(historical.projection,180);
+  assert.equal(historical.projectionConfidence,.45);
+  assert.equal(historical.projectionSource,'Sleeper 2025 half_ppr stats fallback');
+});
+
 test('inactive and unmatched legacy players never enter the live pool', () => {
   const legacyProjection=player('legacy','RB',{name:'Retired Star'});
   const pool=mergeSleeperPlayerPool([legacyProjection],{

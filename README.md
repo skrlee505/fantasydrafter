@@ -19,6 +19,7 @@ Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> 
 - Explicit penalties for an unnecessary second early quarterback
 - Hero RB preference, early-round QB/TE discipline, late K/DEF logic, risk and upside weighting
 - Multiple CSV ranking/projection sources with enable controls and adjustable blend weights
+- Current Sleeper ADP and season projections as the scoring baseline, with prior-season stats as a reduced-weight fallback
 - Durable on-Mac source library that survives app builds and browser-storage changes
 - Separate strategy-article library with PDF support, complete source retention, and transparent capped recommendation adjustments
 - Best-available search and position filters
@@ -48,7 +49,7 @@ Open **Ranking sources** and import one or more CSV files. Each file needs:
 
 Optional recognized columns are `rank`/`ECR`, `team`, `ADP`, `projection`/`points`, and `tier`. Common capitalization and header variations are accepted, as are quoted player names containing commas.
 
-Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. Enabled uploaded sources define which players are eligible for recommendations and their market order. If a sheet contains only ranks, its blended rank drives ADP, tier, availability, and recommendation value; stale baseline projection and VOR values are excluded from scoring. The active Sleeper record and baseline may still supply identity and display metadata.
+Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. Enabled uploaded sources define which players are eligible for recommendations and their market order. If a sheet contains only ranks, its blended rank drives source value and remains authoritative over the baseline. Current Sleeper ADP and format-specific projections supply the baseline scoring context; if a current projection is unavailable, prior-season points are used at reduced weight. Bundled demo projection and VOR values are excluded from source-driven scoring.
 
 Imported sources are saved in `.draftside-data/source-library.json` on this Mac and are also mirrored in browser storage as a fallback. The local file is ignored by Git, persists across app builds, and is never uploaded to GitHub. Existing browser-saved imports migrate into this library the first time the updated server starts.
 
@@ -69,7 +70,7 @@ Mock sessions are stored locally and kept separate from the configured real draf
 
 ## Data and architecture
 
-Sleeper public API is the source of truth for league configuration, roster positions, scoring, users, player identity, and picks. The app connects automatically on startup and polls picks every 750ms without overlapping requests. The active player map is cached for one day, following Sleeper's guidance to download that large dataset sparingly. Sleeper IDs—not display names—determine whether a player is available. Inactive Sleeper records and unmatched bundled projections are excluded from the live player pool. Projection names are suffix- and punctuation-normalized only once to attach the provider record to the canonical ID.
+Sleeper public data is the source of truth for league configuration, roster positions, scoring, users, player identity, picks, and the baseline. The app selects PPR, half-PPR, or standard fields from the connected league or mock, loads current-season Sleeper ADP and projections, and retains prior-season points for a reduced-weight fallback. Baseline responses are cached for six hours; the active player map is cached for one day, following Sleeper's guidance to download that large dataset sparingly. Sleeper IDs—not display names—determine whether a player is available. Inactive Sleeper records and unmatched bundled projections are excluded from the live player pool. If the projection/stat endpoints are unavailable, the app safely falls back to uploaded-rank-only decisions rather than restoring demo values.
 
 The app stores a timestamped scoring snapshot in browser storage. The bundled projection dataset is clearly labeled **demo projections**; it is not presented as a live commercial feed. CSV imports are attached through the same normalized player-identity boundary, so outside rankings can improve the recommendations without replacing application code.
 
