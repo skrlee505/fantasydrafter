@@ -90,6 +90,7 @@ test('CSV ranking sources parse common columns and blend by weight', () => {
   assert.equal(blended.expertRank,9);
   assert.equal(blended.projection,260);
   assert.equal(blended.rankingSourceCount,2);
+  assert.equal(blended.rankingProjectionProvided,true);
 });
 
 test('uploaded rankings can define the eligible recommendation universe', () => {
@@ -105,6 +106,24 @@ test('recommendations reject every player not present in an uploaded source', ()
     player('retired','WR',{projection:400,vor:90,sourceEligible:false})
   ],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],requireUploadedSource:true});
   assert.deepEqual(result.map(p=>p.id),['listed']);
+});
+
+test('rank-only uploads override stale baseline market value and projections', () => {
+  const source=parseRankingCsv('Player,Pos,Rank\nCurrent Value,WR,15\nTyler Lockett,WR,464\nGus Edwards,RB,788','Uploaded ranks');
+  const pool=applyRankingSources([
+    player('current','WR',{name:'Current Value',projection:210,vor:20,adp:80}),
+    player('lockett','WR',{name:'Tyler Lockett',projection:390,vor:90,adp:18}),
+    player('gus','RB',{name:'Gus Edwards',projection:390,vor:90,adp:18})
+  ],[source],{requireMatch:true});
+  const current=pool.find(item=>item.id==='current'),lockett=pool.find(item=>item.id==='lockett'),gus=pool.find(item=>item.id==='gus');
+  assert.equal(current.adp,15);
+  assert.equal(lockett.adp,464);
+  assert.equal(gus.adp,788);
+  assert.equal(lockett.rankingProjectionProvided,false);
+  const result=recommend(pool,{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],requireUploadedSource:true},3);
+  assert.equal(result[0].id,'current');
+  assert.ok(result[0].score>result.find(item=>item.id==='lockett').score);
+  assert.ok(result[0].score>result.find(item=>item.id==='gus').score);
 });
 
 test('defense rankings match the canonical Sleeper defense by team code', () => {

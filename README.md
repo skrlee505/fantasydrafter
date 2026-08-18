@@ -48,7 +48,7 @@ Open **Ranking sources** and import one or more CSV files. Each file needs:
 
 Optional recognized columns are `rank`/`ECR`, `team`, `ADP`, `projection`/`points`, and `tier`. Common capitalization and header variations are accepted, as are quoted player names containing commas.
 
-Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. Enabled uploaded sources define which players are eligible for recommendations, preventing inactive legacy records from leaking out of fallback data. If a sheet contains only ranks, the active Sleeper player record and built-in baseline continue to provide missing projections and other fields.
+Each source can be enabled or disabled and assigned a weight. Active sources are blended by weight; equal weights are the default. Enabled uploaded sources define which players are eligible for recommendations and their market order. If a sheet contains only ranks, its blended rank drives ADP, tier, availability, and recommendation value; stale baseline projection and VOR values are excluded from scoring. The active Sleeper record and baseline may still supply identity and display metadata.
 
 Imported sources are saved in `.draftside-data/source-library.json` on this Mac and are also mirrored in browser storage as a fallback. The local file is ignored by Git, persists across app builds, and is never uploaded to GitHub. Existing browser-saved imports migrate into this library the first time the updated server starts.
 

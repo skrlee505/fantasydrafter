@@ -78,14 +78,20 @@ export function applyRankingSources(players = [], sources = [], options = {}) {
       const total = usable.reduce((sum,{source}) => sum + Number(source.weight || 1), 0);
       return usable.reduce((sum,{source,entry}) => sum + Number(entry[field]) * Number(source.weight || 1), 0) / total;
     };
-    const rank=blend('rank'), adp=blend('adp'), projection=blend('projection'), tier=blend('tier');
+    const rank=blend('rank'), importedAdp=blend('adp'), projection=blend('projection'), importedTier=blend('tier');
+    const sourceMarketRank=importedAdp ?? rank;
+    const sourceTier=importedTier ?? (sourceMarketRank != null ? Math.min(9,Math.max(1,Math.ceil(sourceMarketRank/24))) : null);
     return {
       ...player,
-      ...(adp != null ? { adp } : {}), ...(projection != null ? { projection } : {}), ...(tier != null ? { tier:Math.max(1,Math.round(tier)) } : {}),
+      ...(sourceMarketRank != null ? { adp:sourceMarketRank } : {}), ...(projection != null ? { projection } : {}), ...(sourceTier != null ? { tier:Math.max(1,Math.round(sourceTier)) } : {}),
       expertRank:rank ?? player.expertRank ?? player.adp,
       rankingSourceCount:matches.length,
+      activeRankingSourceCount:active.length,
+      rankingSourceCoverage:matches.length/active.length,
       sourceEligible:true,
-      projectionSource:projection != null ? `${matches.map(m=>m.source.name).join(' + ')} blend` : player.projectionSource,
+      rankingProjectionProvided:projection != null,
+      rankingAdpProvided:importedAdp != null,
+      projectionSource:projection != null ? `${matches.map(m=>m.source.name).join(' + ')} blend` : 'Uploaded rank only',
       rankingSourceNames:matches.map(m=>m.source.name)
     };
   }).filter(Boolean);
@@ -195,11 +201,14 @@ export function scorePlayer(player, context) {
   const starterNeed = needs[player.position] || (['RB','WR','TE'].includes(player.position) ? needs.FLEX : 0);
   const scarcity = Math.max(0, 6 - player.tier) * 2.3;
   const replacement = { QB:270, RB:145, WR:155, TE:120, K:115, DEF:105 }[player.position] || 150;
-  const positionProjection = Math.max(-12, Math.min(30, (Number(player.projection || 0) - replacement) * .12));
-  const vor = Math.max(-35, Math.min(65, player.vor ?? ((Number(player.projection || 0) - replacement) * .45)));
+  const sourceRankOnly = player.sourceEligible === true && player.rankingProjectionProvided !== true;
+  const positionProjection = sourceRankOnly ? 0 : Math.max(-12, Math.min(30, (Number(player.projection || 0) - replacement) * .12));
+  const rawVor = player.rankingProjectionProvided === true ? (Number(player.projection || 0) - replacement) * .45 : player.vor ?? ((Number(player.projection || 0) - replacement) * .45);
+  const vor = sourceRankOnly ? 0 : Math.max(-35, Math.min(65, rawVor));
   const adpValue = Math.max(-12, Math.min(18, (currentPick - player.adp) * 0.65));
   const expertRank = Number(player.expertRank);
-  const expertValue = Number.isFinite(expertRank) ? Math.max(-10, Math.min(14, (currentPick - expertRank) * .45)) : 0;
+  const expertValue = Number.isFinite(expertRank) ? Math.max(-90, Math.min(24, (currentPick - expertRank) * .5)) : 0;
+  const sourceCoveragePenalty = player.sourceEligible === true ? Math.max(0,(1-Number(player.rankingSourceCoverage||0))*8) : 0;
   const risk = (player.risk || 0) * 12;
   const needBonusByPosition = { QB:3, RB:14, WR:14, TE:9, K:4, DEF:4 };
   const needBonus = starterNeed > 0 ? needBonusByPosition[player.position] || 0 : 0;
@@ -215,11 +224,11 @@ export function scorePlayer(player, context) {
     + (player.position === 'TE' && round < 5 && player.tier > 1 ? 15 : 0)
     + (['K','DEF'].includes(player.position) && round < 14 ? 80 : 0);
   const stack = roster.some(p => p.team === player.team && ((p.position === 'QB' && ['WR','TE'].includes(player.position)) || (player.position === 'QB' && ['WR','TE'].includes(p.position)))) ? 3 : 0;
-  const irStash = player.status === 'IR' && roster.length < 14 && player.projection > 175 ? 4 : 0;
+  const irStash = !sourceRankOnly && player.status === 'IR' && roster.length < 14 && player.projection > 175 ? 4 : 0;
   const urgency = Math.max(0, Math.min(12, (nextPick - player.adp) * .25));
   const fallbackPenalty = ['Sleeper rank fallback','No projection mapping'].includes(player.projectionSource) ? 20 : 0;
   const articleAdjustment = strategyAdjustment(player,context,{ counts,round,stack });
-  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateSpecialTeamsNeed + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty;
+  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateSpecialTeamsNeed + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty - sourceCoveragePenalty;
 }
 
 export function strategyAdjustment(player, context, computed = {}) {
