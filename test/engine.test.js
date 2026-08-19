@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, buildLiveFeedback, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -9,12 +9,30 @@ test('slot 12 snake picks are consecutive at turns', () => {
   assert.equal(nextUserPick(14,12,12,15), 36);
 });
 
+test('draft sync waits, runs, and stops with Sleeper lifecycle', () => {
+  assert.equal(draftSyncPhase('pre_draft',0,180),'waiting');
+  assert.equal(draftSyncPhase('drafting',17,180),'drafting');
+  assert.equal(draftSyncPhase('complete',180,180),'complete');
+  assert.equal(draftSyncPhase('drafting',180,180),'complete');
+});
+
 test('roster needs account for FLEX without inventing a starter', () => {
   const result=rosterNeeds([player('r1','RB'),player('w1','WR'),player('w2','WR'),player('t1','TE')]);
   assert.equal(result.needs.RB,1);
   assert.equal(result.needs.WR,1);
   assert.equal(result.needs.TE,0);
   assert.equal(result.needs.FLEX,3);
+});
+
+test('live feedback summarizes build strength, needs, and next archetype in four sentences', () => {
+  const roster=[player('w1','WR',{name:'Alpha Receiver'}),player('w2','WR',{name:'Beta Receiver'}),player('w3','WR',{name:'Gamma Receiver'}),player('r1','RB',{name:'Anchor Back'})];
+  const feedback=buildLiveFeedback(roster,[player('r2','RB',{name:'Volume Back',tier:2})],49);
+  assert.equal(feedback.split(/(?<=[.!?])\s+/).length,4);
+  assert.match(feedback,/receiver-led build/i);
+  assert.match(feedback,/strength is receiver depth/i);
+  assert.match(feedback,/starter coverage at QB, RB, and TE/i);
+  assert.match(feedback,/volume-backed running back/i);
+  assert.match(feedback,/Volume Back/);
 });
 
 test('early recommendation delays kicker and defense', () => {
@@ -50,7 +68,20 @@ test('draft evaluation identifies values, reaches, and Hero RB execution', () =>
   assert.deepEqual(evaluation.values,['Anchor']);
   assert.deepEqual(evaluation.reaches,['Reach']);
   assert.match(evaluation.strategy,/Hero RB established/);
+  assert.ok(evaluation.strengths.every(sentence=>sentence.endsWith('.')));
+  assert.ok(evaluation.weaknesses.every(sentence=>sentence.endsWith('.')));
   assert.equal(evaluation.generatedAt,'fixed');
+});
+
+test('draft evaluation explains alignment with enabled strategy sources', () => {
+  const roster=[player('anchor','RB',{name:'Anchor Back'}),player('qb','QB',{name:'Patient QB'}),player('w1','WR'),player('w2','WR'),player('w3','WR'),player('w4','WR'),player('r2','RB'),player('r3','RB'),player('r4','RB'),player('te','TE'),player('k','K'),player('def','DEF'),player('b1','WR'),player('b2','RB'),player('b3','WR')];
+  const picks=roster.map((item,index)=>({...item,pick_no:[12,84,13,36,60,85,37,61,108,72,156,168,109,132,133][index],player_name:item.name})).sort((a,b)=>a.pick_no-b.pick_no);
+  const evaluation=evaluateDraft(roster,picks,{strategyProfile:{heroRb:1,qbPatience:1},strategySources:[{name:'Draft Playbook',enabled:true,weight:1}]});
+  assert.equal(evaluation.evaluationVersion,2);
+  assert.ok(evaluation.strategyExplanation.length>=3&&evaluation.strategyExplanation.length<=5);
+  assert.match(evaluation.strategyExplanation.join(' '),/Draft Playbook/);
+  assert.match(evaluation.strategyExplanation.join(' '),/followed 2 of 2 measurable strategy signals/);
+  assert.deepEqual(evaluation.strategyAlignment,{aligned:2,total:2,sources:['Draft Playbook']});
 });
 
 test('canonical names tolerate Sleeper suffix and punctuation differences', () => {
@@ -117,6 +148,8 @@ test('CSV ranking sources parse common columns and blend by weight', () => {
   assert.equal(blended.projection,260);
   assert.equal(blended.rankingSourceCount,2);
   assert.equal(blended.rankingProjectionProvided,true);
+  assert.equal(blended.adp,20);
+  assert.equal(blended.valueRank,1);
 });
 
 test('uploaded rankings can define the eligible recommendation universe', () => {
@@ -124,6 +157,20 @@ test('uploaded rankings can define the eligible recommendation universe', () => 
   const result=applyRankingSources([player('current','RB',{name:'Current Player'}),player('legacy','WR',{name:'Retired Player'})],[source],{requireMatch:true});
   assert.deepEqual(result.map(p=>p.id),['current']);
   assert.equal(result[0].projection,220);
+});
+
+test('player pool retains unmatched Sleeper players with baseline-only value', () => {
+  const source=parseRankingCsv('Player,Pos,Rank\nRanked Player,RB,1','Current ranks');
+  const result=applyRankingSources([
+    player('ranked','RB',{name:'Ranked Player',adp:10}),
+    player('depth','WR',{name:'Sleeper Depth',adp:70})
+  ],[source]);
+  const depth=result.find(item=>item.id==='depth');
+  assert.equal(result.length,2);
+  assert.equal(depth.sourceEligible,false);
+  assert.equal(depth.expertRank,null);
+  assert.equal(depth.marketAdp,70);
+  assert.ok(Number.isFinite(depth.valueRank));
 });
 
 test('recommendations reject every player not present in an uploaded source', () => {
@@ -134,7 +181,7 @@ test('recommendations reject every player not present in an uploaded source', ()
   assert.deepEqual(result.map(p=>p.id),['listed']);
 });
 
-test('rank-only uploads override stale baseline market value and projections', () => {
+test('rank-only uploads preserve Sleeper baseline while controlling source consensus', () => {
   const source=parseRankingCsv('Player,Pos,Rank\nCurrent Value,WR,15\nTyler Lockett,WR,464\nGus Edwards,RB,788','Uploaded ranks');
   const pool=applyRankingSources([
     player('current','WR',{name:'Current Value',projection:210,vor:20,adp:80}),
@@ -142,14 +189,38 @@ test('rank-only uploads override stale baseline market value and projections', (
     player('gus','RB',{name:'Gus Edwards',projection:390,vor:90,adp:18})
   ],[source],{requireMatch:true});
   const current=pool.find(item=>item.id==='current'),lockett=pool.find(item=>item.id==='lockett'),gus=pool.find(item=>item.id==='gus');
-  assert.equal(current.adp,15);
-  assert.equal(lockett.adp,464);
-  assert.equal(gus.adp,788);
+  assert.equal(current.adp,80);
+  assert.equal(current.expertRank,15);
+  assert.equal(lockett.adp,18);
+  assert.equal(lockett.expertRank,464);
+  assert.equal(gus.adp,18);
+  assert.equal(gus.expertRank,788);
+  assert.equal(current.valueRank,1);
   assert.equal(lockett.rankingProjectionProvided,false);
   const result=recommend(pool,{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],requireUploadedSource:true},3);
   assert.equal(result[0].id,'current');
   assert.ok(result[0].score>result.find(item=>item.id==='lockett').score);
   assert.ok(result[0].score>result.find(item=>item.id==='gus').score);
+});
+
+test('player value rank favors source consensus without ignoring Sleeper baseline', () => {
+  const source=parseRankingCsv('Player,Pos,Rank\nConsensus Favorite,WR,1\nSleeper Favorite,WR,10','Expert consensus');
+  const pool=applyRankingSources([
+    player('consensus','WR',{name:'Consensus Favorite',adp:30,vor:30}),
+    player('sleeper','WR',{name:'Sleeper Favorite',adp:2,vor:20})
+  ],[source],{requireMatch:true});
+  assert.deepEqual(pool.map(item=>item.id),['consensus','sleeper']);
+  assert.deepEqual(pool.map(item=>item.valueRank),[1,2]);
+  assert.equal(pool[0].marketAdp,30);
+  assert.equal(pool[1].marketAdp,2);
+});
+
+test('uploaded ADP blends into market value without replacing Sleeper ADP', () => {
+  const source=parseRankingCsv('Player,Pos,Rank,ADP\nMarket Player,RB,12,10','Market ranks');
+  const result=applyRankingSources([player('market','RB',{name:'Market Player',adp:20,sleeperAdp:20})],[source],{requireMatch:true})[0];
+  assert.equal(result.adp,20);
+  assert.equal(result.sourceAdp,10);
+  assert.equal(result.marketAdp,15);
 });
 
 test('defense rankings match the canonical Sleeper defense by team code', () => {

@@ -20,7 +20,7 @@
     <section class="turn-strip">
       <div><span id="pickLabel" class="eyebrow">ROUND 1 · PICK 12</span><h1 id="turnTitle">You’re on the clock</h1><p id="turnDetail">Back-to-back picks. Your next selection is pick 13.</p></div>
       <div class="clock"><span id="pickContext">#12</span><small>CURRENT PICK</small><b id="pickDistance">YOU'RE UP</b></div>
-      <div class="sync"><span><i></i> Sleeper connected</span><small id="syncTime">Synced just now</small><button id="manualBtn">＋ Manual pick</button></div>
+      <div class="sync"><span id="syncStatus"><i></i> Sleeper connected</span><small id="syncTime">Synced just now</small><button id="manualBtn">＋ Manual pick</button></div>
     </section>
 
     <div class="decision-workspace">
@@ -35,11 +35,16 @@
       </section>
     </div>
 
+    <section class="live-feedback panel" aria-live="polite">
+      <div class="feedback-mark">LIVE</div>
+      <div><span class="eyebrow">DRAFT ROOM READ</span><h2>Live feedback</h2><p id="liveFeedback"></p></div>
+    </section>
+
     <div class="content-grid">
       <section class="available panel">
         <div class="section-head compact"><div><span class="eyebrow">PLAYER POOL</span><h2>Best available</h2></div><div class="count" id="playerCount"></div></div>
         <div class="filters"><label class="search">⌕ <input id="search" placeholder="Search players"></label><div id="positionFilters" class="chips"><button class="active" data-pos="ALL">All</button><button data-pos="QB">QB</button><button data-pos="RB">RB</button><button data-pos="WR">WR</button><button data-pos="TE">TE</button><button data-pos="K">K</button><button data-pos="DEF">DEF</button></div></div>
-        <div class="table-wrap"><table><thead><tr><th>RK</th><th>PLAYER</th><th>POS</th><th>PROJ</th><th>TIER</th><th>ADP</th><th>BYE</th><th></th></tr></thead><tbody id="playerRows"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>VALUE</th><th>PLAYER</th><th>POS</th><th>PROJ</th><th>TIER</th><th>SOURCE</th><th>SLEEPER</th><th>BYE</th><th></th></tr></thead><tbody id="playerRows"></tbody></table></div>
       </section>
 
       <aside class="roster panel">

@@ -19,6 +19,10 @@
 .decision-workspace .draft-board{height:484px;max-height:484px;grid-template-columns:40px repeat(12,minmax(56px,1fr))}
 .decision-workspace .board-cell{min-width:56px;min-height:43px}
 .decision-workspace .legend{flex-wrap:wrap;justify-content:flex-end}
+.live-feedback{margin-top:15px;padding:16px 18px;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;border-left:4px solid var(--green)}
+.live-feedback .feedback-mark{background:var(--green);color:var(--lime);font:800 10px Manrope;letter-spacing:.1em;border-radius:6px;padding:7px 8px;margin-top:2px}
+.live-feedback h2{font:800 17px Manrope;margin:2px 0 5px}
+.live-feedback p{margin:0;color:#52615b;line-height:1.55;font-size:12px;max-width:1220px}
 .source-list{display:grid;gap:7px;margin:14px 0;max-height:260px;overflow:auto}
 .source-row{display:grid;grid-template-columns:1fr 100px auto;gap:9px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:9px}
 .source-row.built-in{grid-template-columns:1fr auto;background:#f6f8f6}
