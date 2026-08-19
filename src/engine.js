@@ -59,25 +59,40 @@ export function parseRankingCsv(text, sourceName = 'Imported rankings') {
 
 export function applyRankingSources(players = [], sources = [], options = {}) {
   const active = sources.filter(source => source.enabled !== false && Number(source.weight) > 0);
-  if (!active.length) return players.map(player => ({ ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 }));
-  const maps = active.map(source => ({ source, entries:new Map((source.entries || []).map(entry => [entry.key, entry])) }));
+  if (!active.length) return options.requireMatch ? [] : players.map(player => ({ ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0, sourceEligible:false }));
+  const maps = active.map(source => {
+    const entries=new Map();
+    for(const entry of source.entries||[]){
+      entries.set(entry.key,entry);
+      if(entry.position==='DEF'&&entry.team)entries.set(`defteam:${String(entry.team).toUpperCase()}`,entry);
+    }
+    return{source,entries};
+  });
   return players.map(player => {
     const key = `${canonicalPlayerName(player.name)}:${player.position}`;
-    const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key) })).filter(match => match.entry);
-    if (!matches.length) return options.requireMatch ? null : { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0 };
+    const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key)||(player.position==='DEF'&&player.team?entries.get(`defteam:${String(player.team).toUpperCase()}`):null) })).filter(match => match.entry);
+    if (!matches.length) return options.requireMatch ? null : { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0, sourceEligible:false };
     const blend = field => {
       const usable = matches.filter(({entry}) => entry[field] !== null && entry[field] !== undefined && entry[field] !== '' && Number.isFinite(Number(entry[field])));
       if (!usable.length) return null;
       const total = usable.reduce((sum,{source}) => sum + Number(source.weight || 1), 0);
       return usable.reduce((sum,{source,entry}) => sum + Number(entry[field]) * Number(source.weight || 1), 0) / total;
     };
-    const rank=blend('rank'), adp=blend('adp'), projection=blend('projection'), tier=blend('tier');
+    const rank=blend('rank'), importedAdp=blend('adp'), projection=blend('projection'), importedTier=blend('tier');
+    const sourceMarketRank=importedAdp ?? rank;
+    const sourceTier=importedTier ?? (sourceMarketRank != null ? Math.min(9,Math.max(1,Math.ceil(sourceMarketRank/24))) : null);
     return {
       ...player,
-      ...(adp != null ? { adp } : {}), ...(projection != null ? { projection } : {}), ...(tier != null ? { tier:Math.max(1,Math.round(tier)) } : {}),
+      ...(sourceMarketRank != null ? { adp:sourceMarketRank } : {}), ...(projection != null ? { projection } : {}), ...(sourceTier != null ? { tier:Math.max(1,Math.round(sourceTier)) } : {}),
       expertRank:rank ?? player.expertRank ?? player.adp,
       rankingSourceCount:matches.length,
+      activeRankingSourceCount:active.length,
+      rankingSourceCoverage:matches.length/active.length,
+      sourceEligible:true,
+      rankingProjectionProvided:projection != null,
+      rankingAdpProvided:importedAdp != null,
       projectionSource:projection != null ? `${matches.map(m=>m.source.name).join(' + ')} blend` : player.projectionSource,
+      decisionProjectionSource:projection != null ? 'Uploaded projection' : player.baselineProjectionTrusted ? player.projectionSource : 'Uploaded rank only',
       rankingSourceNames:matches.map(m=>m.source.name)
     };
   }).filter(Boolean);
@@ -92,7 +107,7 @@ const strategyDefinitions = [
   { id:'handcuffValue', label:'Handcuff at a fair price', positive:[/\bhandcuff\b/gi,/\bdirect\s+backup\b/gi], negative:[] }
 ];
 
-export function analyzeStrategyText(text = '', sourceName = 'Strategy article') {
+export function analyzeStrategyText(text = '', sourceName = 'Strategy article', metadata = {}) {
   const clean = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   if (clean.length < 40) throw new Error('Strategy text must contain at least 40 characters.');
   const signals = {};
@@ -103,7 +118,11 @@ export function analyzeStrategyText(text = '', sourceName = 'Strategy article') 
     const score = Math.max(-1,Math.min(1,(positive-negative)/Math.max(1,positive+negative)));
     if (positive || negative) { signals[definition.id]=score; detected.push({ id:definition.id,label:definition.label,score }); }
   }
-  return { id:`strategy-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Strategy article', weight:1, enabled:true, signals, detected, excerpt:clean.slice(0,240), importedAt:new Date().toISOString() };
+  return {
+    id:`strategy-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Strategy article', weight:1, enabled:true,
+    signals, detected, excerpt:clean.slice(0,240), text:clean, characterCount:clean.length,
+    fileName:metadata.fileName||null, format:metadata.format||'text', importedAt:new Date().toISOString()
+  };
 }
 
 export function aggregateStrategySources(sources = []) {
@@ -118,8 +137,26 @@ export function aggregateStrategySources(sources = []) {
   return profile;
 }
 
-export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
+const fantasyPointsField = format => format === 'half_ppr' ? 'pts_half_ppr' : format === 'std' ? 'pts_std' : 'pts_ppr';
+const adpField = format => format === 'half_ppr' ? 'adp_half_ppr' : format === 'std' ? 'adp_std' : 'adp_ppr';
+
+function sleeperBaselineIndex(rows = []) {
+  const index=new Map();
+  for(const row of rows){
+    const id=String(row?.player_id||row?.team||'');
+    if(!id)continue;
+    const current=index.get(id),currentSize=Object.keys(current?.stats||{}).length,nextSize=Object.keys(row?.stats||{}).length;
+    if(!current||nextSize>currentSize)index.set(id,row);
+  }
+  return index;
+}
+
+export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}, sleeperBaseline = {}, options = {}) {
   const positions = new Set(['QB','RB','WR','TE','K','DEF']);
+  const scoringFormat=['ppr','half_ppr','std'].includes(options.scoringFormat)?options.scoringFormat:'ppr';
+  const pointsKey=fantasyPointsField(scoringFormat),adpKey=adpField(scoringFormat);
+  const projectionIndex=sleeperBaselineIndex(sleeperBaseline.projections);
+  const statsIndex=sleeperBaselineIndex(sleeperBaseline.stats);
   const projectionByAlias = new Map(projections.map(p => [`${canonicalPlayerName(p.name)}:${p.position}`, p]));
   const defenseByTeam = new Map(projections.filter(p=>p.position==='DEF').map(p=>[p.team,p]));
   const matched = new Set();
@@ -130,19 +167,32 @@ export function mergeSleeperPlayerPool(projections = [], sleeperMap = {}) {
     const name = raw.full_name || `${raw.first_name || ''} ${raw.last_name || ''}`.trim() || (position === 'DEF' ? raw.team : 'Unknown player');
     if (!positions.has(position) || raw.active !== true || !name) continue;
     const projection = projectionByAlias.get(`${canonicalPlayerName(name)}:${position}`) || (position==='DEF' ? defenseByTeam.get(raw.team||sleeperId) : null);
+    const currentBaseline=projectionIndex.get(String(sleeperId))||projectionIndex.get(String(raw.team||''));
+    const historicalBaseline=statsIndex.get(String(sleeperId))||statsIndex.get(String(raw.team||''));
+    const currentPoints=Number(currentBaseline?.stats?.[pointsKey]),historicalPoints=Number(historicalBaseline?.stats?.[pointsKey]);
+    const currentAdp=Number(currentBaseline?.stats?.[adpKey]);
+    const hasCurrentProjection=Number.isFinite(currentPoints)&&currentPoints>0,hasHistoricalStats=Number.isFinite(historicalPoints)&&historicalPoints>0;
     if (projection) matched.add(projection.id);
     const rank = Number(raw.search_rank);
-    const adp = Number.isFinite(rank) && rank > 0 ? rank : 999;
+    const searchRank = Number.isFinite(rank) && rank > 0 ? rank : 999;
+    const hasSleeperAdp=Number.isFinite(currentAdp)&&currentAdp>0&&currentAdp<999;
+    const adp = hasSleeperAdp ? currentAdp : searchRank;
     const baseline = { QB:310, RB:220, WR:210, TE:175, K:145, DEF:135 }[position];
-    pool.push(projection ? {
-      ...projection, id:sleeperId, sleeperId, name, team:raw.team || projection.team,
-      status:raw.injury_status || raw.status || projection.status, yearsExp:Number(raw.years_exp), identitySource:'Sleeper ID', projectionSource:'Bundled projection'
-    } : {
-      id:sleeperId, sleeperId, name, team:raw.team || (position === 'DEF' ? sleeperId : 'FA'), position,
-      projection:Math.max(35,Math.round(baseline-Math.min(adp,300)*.55)), adp,
-      tier:Math.min(9,Math.max(1,Math.ceil(adp/24))), vor:Math.max(-30,25-adp*.2),
-      risk:raw.injury_status?.length ? .25 : .12, upside:Number(raw.years_exp) <= 1 ? .78 : .48, yearsExp:Number(raw.years_exp),
-      bye:'—', status:raw.injury_status || raw.status || 'Active', identitySource:'Sleeper ID', projectionSource:'Sleeper rank fallback'
+    const fallbackProjection=projection?.projection??Math.max(35,Math.round(baseline-Math.min(adp,300)*.55));
+    const resolvedProjection=hasCurrentProjection?currentPoints:hasHistoricalStats?historicalPoints:fallbackProjection;
+    const replacement={QB:270,RB:145,WR:155,TE:120,K:115,DEF:105}[position]||150;
+    const projectionConfidence=hasCurrentProjection ? 1 : hasHistoricalStats ? 0.45 : 0;
+    pool.push({
+      ...(projection||{}),id:sleeperId,sleeperId,name,team:raw.team||(position==='DEF'?sleeperId:projection?.team||'FA'),position,
+      projection:resolvedProjection,adp,tier:Math.min(9,Math.max(1,Math.ceil(adp/24))),
+      vor:projectionConfidence>0?(resolvedProjection-replacement)*.45:projection?.vor??Math.max(-30,25-adp*.2),
+      risk:projection?.risk??(raw.injury_status?.length?.25:.12),upside:projection?.upside??(Number(raw.years_exp)<=1?.78:.48),
+      yearsExp:Number(raw.years_exp),bye:projection?.bye??'—',status:raw.injury_status||raw.status||projection?.status||'Active',
+      identitySource:'Sleeper ID',projectionSource:hasCurrentProjection?`Sleeper ${sleeperBaseline.season||'current'} ${scoringFormat} projection`:hasHistoricalStats?`Sleeper ${sleeperBaseline.previousSeason||'prior'} ${scoringFormat} stats fallback`:projection?'Bundled projection':'Sleeper rank fallback',
+      baselineSource:hasCurrentProjection||hasHistoricalStats?'Sleeper API':projection?'Bundled demo':'Estimated fallback',
+      baselineProjectionTrusted:hasCurrentProjection||hasHistoricalStats,projectionConfidence,
+      sleeperAdp:hasSleeperAdp?currentAdp:null,adpSource:hasSleeperAdp?`Sleeper ${sleeperBaseline.season||'current'} ${scoringFormat} ADP`:'Sleeper search rank',
+      lastSeasonPoints:hasHistoricalStats?historicalPoints:null,baselineSeason:sleeperBaseline.season||null,statsSeason:sleeperBaseline.previousSeason||null
     });
   }
   if (!Object.keys(sleeperMap).length) for (const projection of projections) if (!matched.has(projection.id)) pool.push({ ...projection, projectionSource:'Unmapped bundled projection' });
@@ -183,29 +233,37 @@ export function scorePlayer(player, context) {
   const starterNeed = needs[player.position] || (['RB','WR','TE'].includes(player.position) ? needs.FLEX : 0);
   const scarcity = Math.max(0, 6 - player.tier) * 2.3;
   const replacement = { QB:270, RB:145, WR:155, TE:120, K:115, DEF:105 }[player.position] || 150;
-  const positionProjection = Math.max(-12, Math.min(30, (Number(player.projection || 0) - replacement) * .12));
-  const vor = Math.max(-35, Math.min(65, player.vor ?? ((Number(player.projection || 0) - replacement) * .45)));
+  const sourceRankOnly = player.sourceEligible === true && player.rankingProjectionProvided !== true;
+  const trustedBaseline = player.baselineProjectionTrusted === true;
+  const useProjection = !sourceRankOnly || trustedBaseline;
+  const projectionWeight=player.rankingProjectionProvided===true?1:trustedBaseline?Number(player.projectionConfidence||1):1;
+  const positionProjection = useProjection ? Math.max(-12, Math.min(30, (Number(player.projection || 0) - replacement) * .12))*projectionWeight : 0;
+  const rawVor = player.rankingProjectionProvided === true ? (Number(player.projection || 0) - replacement) * .45 : player.vor ?? ((Number(player.projection || 0) - replacement) * .45);
+  const vor = useProjection ? Math.max(-35, Math.min(65, rawVor))*projectionWeight : 0;
   const adpValue = Math.max(-12, Math.min(18, (currentPick - player.adp) * 0.65));
   const expertRank = Number(player.expertRank);
-  const expertValue = Number.isFinite(expertRank) ? Math.max(-10, Math.min(14, (currentPick - expertRank) * .45)) : 0;
+  const expertValue = Number.isFinite(expertRank) ? Math.max(-90, Math.min(24, (currentPick - expertRank) * .5)) : 0;
+  const sourceCoveragePenalty = player.sourceEligible === true ? Math.max(0,(1-Number(player.rankingSourceCoverage||0))*8) : 0;
   const risk = (player.risk || 0) * 12;
-  const needBonusByPosition = { QB:3, RB:14, WR:14, TE:9, K:0, DEF:0 };
+  const needBonusByPosition = { QB:3, RB:14, WR:14, TE:9, K:4, DEF:4 };
   const needBonus = starterNeed > 0 ? needBonusByPosition[player.position] || 0 : 0;
+  const lateSpecialTeamsNeed = ['K','DEF'].includes(player.position) && starterNeed > 0 && round >= 14 ? (round >= 15 ? 68 : 42) : 0;
   const lateUpside = round >= 9 ? (player.upside || 0) * 11 : (player.upside || 0) * 4;
   const heroRB = player.position === 'RB' && !(counts.RB > 0) && round <= 3 ? 15 : 0;
   const qbWait = player.position === 'QB' ? (round <= 5 ? (player.tier === 1 ? 20 : 38) : round <= 7 ? 8 : 0) : 0;
   const duplicateQb = player.position === 'QB' && (counts.QB || 0) >= 1 ? (round < 11 ? 48 : 24) : 0;
   const duplicateTe = player.position === 'TE' && (counts.TE || 0) >= 1 ? (round < 10 ? 24 : 10) : 0;
   const saturatedSkill = (player.position === 'RB' && (counts.RB || 0) >= 5) || (player.position === 'WR' && (counts.WR || 0) >= 6) ? 15 : 0;
-  const waitPenalty = qbWait + duplicateQb + duplicateTe + saturatedSkill
+  const duplicateSpecialTeams = ['K','DEF'].includes(player.position) && (counts[player.position] || 0) >= 1 ? 65 : 0;
+  const waitPenalty = qbWait + duplicateQb + duplicateTe + duplicateSpecialTeams + saturatedSkill
     + (player.position === 'TE' && round < 5 && player.tier > 1 ? 15 : 0)
     + (['K','DEF'].includes(player.position) && round < 14 ? 80 : 0);
   const stack = roster.some(p => p.team === player.team && ((p.position === 'QB' && ['WR','TE'].includes(player.position)) || (player.position === 'QB' && ['WR','TE'].includes(p.position)))) ? 3 : 0;
-  const irStash = player.status === 'IR' && roster.length < 14 && player.projection > 175 ? 4 : 0;
+  const irStash = useProjection && player.status === 'IR' && roster.length < 14 && player.projection > 175 ? 4 : 0;
   const urgency = Math.max(0, Math.min(12, (nextPick - player.adp) * .25));
   const fallbackPenalty = ['Sleeper rank fallback','No projection mapping'].includes(player.projectionSource) ? 20 : 0;
   const articleAdjustment = strategyAdjustment(player,context,{ counts,round,stack });
-  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty;
+  return positionProjection + vor * .9 + scarcity + adpValue + expertValue + needBonus + lateSpecialTeamsNeed + lateUpside + heroRB + stack + irStash + urgency + articleAdjustment - risk - waitPenalty - fallbackPenalty - sourceCoveragePenalty;
 }
 
 export function strategyAdjustment(player, context, computed = {}) {
@@ -223,7 +281,7 @@ export function strategyAdjustment(player, context, computed = {}) {
 
 export function recommend(players, context, count = 5) {
   const drafted = new Set(context.draftedIds || []);
-  return players.filter(p => !drafted.has(p.id) && !context.doNotDraft?.includes(p.id))
+  return players.filter(p => !drafted.has(p.id) && !context.doNotDraft?.includes(p.id) && (!context.requireUploadedSource || p.sourceEligible === true))
     .map(p => ({ ...p, score: scorePlayer(p, context), strategyAdjustment:strategyAdjustment(p,context), availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
     .sort((a,b) => b.score - a.score).slice(0, count);
 }

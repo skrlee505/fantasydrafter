@@ -73,6 +73,32 @@ test('full Sleeper pool includes unprojected active players with disclosed fallb
   assert.equal(pool[0].projectionSource,'Sleeper rank fallback');
 });
 
+test('Sleeper API baseline supplies format-specific current ADP and projections', () => {
+  const pool=mergeSleeperPlayerPool([],{
+    '4034':{full_name:'Christian McCaffrey',position:'RB',team:'SF',active:true,search_rank:5},
+    '9999':{full_name:'Historical Player',position:'WR',team:'SEA',active:true,search_rank:90}
+  },{
+    season:'2026',previousSeason:'2025',
+    projections:[
+      {player_id:'4034',stats:{adp_ppr:5.4,adp_half_ppr:5.5,pts_ppr:291,pts_half_ppr:256}},
+      {player_id:'9999',stats:{adp_half_ppr:88}}
+    ],
+    stats:[
+      {player_id:'4034',stats:{pts_half_ppr:365.6}},
+      {player_id:'9999',stats:{pts_half_ppr:180}}
+    ]
+  },{scoringFormat:'half_ppr'});
+  const current=pool.find(item=>item.id==='4034'),historical=pool.find(item=>item.id==='9999');
+  assert.equal(current.adp,5.5);
+  assert.equal(current.projection,256);
+  assert.equal(current.projectionSource,'Sleeper 2026 half_ppr projection');
+  assert.equal(current.baselineProjectionTrusted,true);
+  assert.equal(historical.adp,88);
+  assert.equal(historical.projection,180);
+  assert.equal(historical.projectionConfidence,.45);
+  assert.equal(historical.projectionSource,'Sleeper 2025 half_ppr stats fallback');
+});
+
 test('inactive and unmatched legacy players never enter the live pool', () => {
   const legacyProjection=player('legacy','RB',{name:'Retired Star'});
   const pool=mergeSleeperPlayerPool([legacyProjection],{
@@ -90,6 +116,7 @@ test('CSV ranking sources parse common columns and blend by weight', () => {
   assert.equal(blended.expertRank,9);
   assert.equal(blended.projection,260);
   assert.equal(blended.rankingSourceCount,2);
+  assert.equal(blended.rankingProjectionProvided,true);
 });
 
 test('uploaded rankings can define the eligible recommendation universe', () => {
@@ -99,6 +126,51 @@ test('uploaded rankings can define the eligible recommendation universe', () => 
   assert.equal(result[0].projection,220);
 });
 
+test('recommendations reject every player not present in an uploaded source', () => {
+  const result=recommend([
+    player('listed','RB',{sourceEligible:true}),
+    player('retired','WR',{projection:400,vor:90,sourceEligible:false})
+  ],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],requireUploadedSource:true});
+  assert.deepEqual(result.map(p=>p.id),['listed']);
+});
+
+test('rank-only uploads override stale baseline market value and projections', () => {
+  const source=parseRankingCsv('Player,Pos,Rank\nCurrent Value,WR,15\nTyler Lockett,WR,464\nGus Edwards,RB,788','Uploaded ranks');
+  const pool=applyRankingSources([
+    player('current','WR',{name:'Current Value',projection:210,vor:20,adp:80}),
+    player('lockett','WR',{name:'Tyler Lockett',projection:390,vor:90,adp:18}),
+    player('gus','RB',{name:'Gus Edwards',projection:390,vor:90,adp:18})
+  ],[source],{requireMatch:true});
+  const current=pool.find(item=>item.id==='current'),lockett=pool.find(item=>item.id==='lockett'),gus=pool.find(item=>item.id==='gus');
+  assert.equal(current.adp,15);
+  assert.equal(lockett.adp,464);
+  assert.equal(gus.adp,788);
+  assert.equal(lockett.rankingProjectionProvided,false);
+  const result=recommend(pool,{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],requireUploadedSource:true},3);
+  assert.equal(result[0].id,'current');
+  assert.ok(result[0].score>result.find(item=>item.id==='lockett').score);
+  assert.ok(result[0].score>result.find(item=>item.id==='gus').score);
+});
+
+test('defense rankings match the canonical Sleeper defense by team code', () => {
+  const source=parseRankingCsv('Player,Pos,Team,Rank\nDenver Broncos Defense,DST,DEN,1','Defense ranks');
+  const result=applyRankingSources([player('DEN','DEF',{name:'Denver Broncos',team:'DEN'})],[source],{requireMatch:true});
+  assert.deepEqual(result.map(p=>p.id),['DEN']);
+  assert.equal(result[0].sourceEligible,true);
+});
+
+test('late-round recommendations surface both missing kicker and defense starters', () => {
+  const roster=[player('qb1','QB'),player('rb1','RB'),player('rb2','RB'),player('wr1','WR'),player('wr2','WR'),player('wr3','WR'),player('te1','TE'),player('flex','RB')];
+  const pool=[
+    player('bench-rb','RB',{adp:170,vor:15}),
+    player('bench-wr','WR',{adp:170,vor:15}),
+    player('kicker','K',{projection:145,adp:170,vor:10}),
+    player('defense','DEF',{projection:135,adp:170,vor:10})
+  ];
+  const result=recommend(pool,{roster,currentPick:169,nextPick:180,draftedIds:[],doNotDraft:[]});
+  assert.deepEqual(new Set(result.slice(0,2).map(p=>p.position)),new Set(['K','DEF']));
+});
+
 test('strategy articles produce transparent weighted recommendation signals', () => {
   const article=analyzeStrategyText('A Hero RB build works well. Wait on quarterback and target rookie upside on the bench.','Draft guide');
   const profile=aggregateStrategySources([article]);
@@ -106,6 +178,15 @@ test('strategy articles produce transparent weighted recommendation signals', ()
   assert.equal(profile.qbPatience,1);
   const result=recommend([player('rb','RB',{projection:220,adp:12}),player('wr','WR',{projection:220,adp:12})],{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[],strategyProfile:profile});
   assert.ok(result.find(p=>p.id==='rb').strategyAdjustment>result.find(p=>p.id==='wr').strategyAdjustment);
+});
+
+test('strategy sources retain complete cleaned text and import metadata', () => {
+  const raw='<h1>Draft plan</h1> Wait on quarterback and target rookie upside on the bench throughout the later rounds.';
+  const article=analyzeStrategyText(raw,'Guide',{fileName:'guide.pdf',format:'pdf'});
+  assert.equal(article.text,'Draft plan Wait on quarterback and target rookie upside on the bench throughout the later rounds.');
+  assert.equal(article.characterCount,article.text.length);
+  assert.equal(article.fileName,'guide.pdf');
+  assert.equal(article.format,'pdf');
 });
 
 test('partial draft evaluation withholds a misleading final letter grade', () => {
