@@ -5,6 +5,13 @@ export function canonicalPlayerName(name = '') {
     .replace(/\b(jr|sr|ii|iii|iv|v)\.?$/i, '').replace(/[^a-z]/g, '');
 }
 
+export function draftSyncPhase(status = 'pre_draft', pickCount = 0, totalPicks = 0) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'complete' || (totalPicks > 0 && pickCount >= totalPicks)) return 'complete';
+  if (['drafting','in_progress','active'].includes(normalized)) return 'drafting';
+  return 'waiting';
+}
+
 const numeric = value => {
   const parsed = Number(String(value ?? '').replace(/[$,%]/g, '').trim());
   return Number.isFinite(parsed) ? parsed : null;

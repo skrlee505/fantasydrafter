@@ -1,12 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
 test('slot 12 snake picks are consecutive at turns', () => {
   assert.deepEqual(userPickNumbers(12,12,5), [12,13,36,37,60]);
   assert.equal(nextUserPick(14,12,12,15), 36);
+});
+
+test('draft sync waits, runs, and stops with Sleeper lifecycle', () => {
+  assert.equal(draftSyncPhase('pre_draft',0,180),'waiting');
+  assert.equal(draftSyncPhase('drafting',17,180),'drafting');
+  assert.equal(draftSyncPhase('complete',180,180),'complete');
+  assert.equal(draftSyncPhase('drafting',180,180),'complete');
 });
 
 test('roster needs account for FLEX without inventing a starter', () => {

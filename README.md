@@ -27,12 +27,13 @@ Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> 
 - Live roster slots, needs, strengths, and grade
 - Full scrollable snake draft board beside the recommendations, with the user's slot emphasized
 - Read-only sync from the configured Sleeper league and draft
-- Live Sleeper mock mode: paste a draft ID, detect the user's draft slot, and follow the mock with the same two-second recommendation loop
+- Live Sleeper mock mode: paste a draft ID, detect the user's draft slot, and follow the mock with the same one-second recommendation loop
 - Complete active Sleeper player pool with Sleeper player IDs as the canonical draft identity; bundled projections are attached through suffix-tolerant aliases
 - Serialized lightweight pick polling that never overlaps the larger player-map/session refresh
 - Saved mock history with isolated picks, manual recovery state, status, timestamps, and reopenable evaluations
 - Mock draft reviews covering starter quality, coverage, depth, draft value, bench upside, risk, Hero RB execution, and remaining needs
-- Automatic Sleeper connection on startup with 750ms serialized pick polling, deduplication, offline retention, and automatic reconnection
+- Automatic Sleeper connection on startup, one-second pre-draft status monitoring, and one-second serialized pick polling from draft start through the final pick
+- Automatic polling shutdown at draft completion after the final mock snapshot and evaluation are saved
 - Manual pick entry/correction and undo, with manual state visually distinct
 - Timestamped league-scoring snapshot and a locally cached player-ID map
 - Visual and browser-audio alerts with mute control
@@ -63,8 +64,9 @@ Draftside detects a deliberately limited set of guidance: Hero/Zero RB, quarterb
 
 1. Create or join a mock draft in Sleeper and copy its numeric draft ID from the draft URL.
 2. Open **Practice mocks**, paste the ID, and select **Start mock**.
-3. Draft in Sleeper as usual. Draftside polls the public draft every two seconds and keeps recommendations, the board, roster analysis, and next-pick calculations synchronized.
-4. Reopen any saved session from **Mock history**. **Review** opens its latest saved state and evaluation without requiring the mock to still be live.
+3. Draft in Sleeper as usual. Draftside checks once per second while waiting, begins one-second pick polling as soon as Sleeper marks the draft active, and keeps recommendations, the board, roster analysis, and next-pick calculations synchronized.
+4. At draft completion, Draftside saves the final state and evaluation and stops polling automatically.
+5. Reopen any saved session from **Mock history**. **Review** opens its latest saved state and evaluation without requiring the mock to still be live.
 
 Mock sessions are stored locally and kept separate from the configured real draft. Deleting a history entry also removes its mock-specific manual recovery state.
 
