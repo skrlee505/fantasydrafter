@@ -247,6 +247,39 @@ export function rosterNeeds(roster = []) {
   return { counts, needs, filled: roster.length, remaining: Math.max(0, 15 - roster.length) };
 }
 
+export function buildLiveFeedback(roster = [], recommendations = [], currentPick = 1) {
+  const { counts, needs } = rosterNeeds(roster);
+  const round = Math.max(1,Math.ceil(Number(currentPick || 1) / 12));
+  const skillCount=(counts.RB||0)+(counts.WR||0),rbCount=counts.RB||0,wrCount=counts.WR||0;
+  const build = !roster.length ? 'Your roster is still a clean slate, so you can take the strongest value without forcing a position.'
+    : rbCount>=wrCount+2 ? `Through ${roster.length} selections, this is a backfield-led build with ${rbCount} running backs and ${wrCount} wide receiver${wrCount===1?'':'s'}.`
+    : wrCount>=rbCount+2 ? `Through ${roster.length} selections, this is a receiver-led build with ${wrCount} wide receivers and ${rbCount} running back${rbCount===1?'':'s'}.`
+    : `Through ${roster.length} selections, this is a balanced build with ${skillCount} running backs and wide receivers anchoring the roster.`;
+  const elite=roster.find(player=>['QB','TE'].includes(player.position)&&Number(player.tier)<=2);
+  const strength = wrCount>=3 ? 'The current strength is receiver depth, which gives the lineup weekly ceiling and useful FLEX flexibility.'
+    : rbCount>=2 ? 'The current strength is running-back volume, giving the lineup a stable workload base and injury insulation.'
+    : elite ? `The current strength is the high-end ${elite.position} advantage supplied by ${elite.name}.`
+    : roster.length ? `The current strength is flexibility: no single position is overloaded, and ${Math.max(rbCount,wrCount)} core skill players are already in place.`
+    : 'The current strength is maximum flexibility across every roster position.';
+  const considered=['QB','RB','WR','TE',...(round>=13?['K','DEF']:[])];
+  const missing=considered.filter(position=>(needs[position]||0)>0);
+  const missingLabel=missing.length>2?`${missing.slice(0,-1).join(', ')}, and ${missing.at(-1)}`:missing.join(' and ');
+  const lacking = missing.length ? `What is lacking most is starter coverage at ${missingLabel}.`
+    : needs.FLEX>0 ? 'The starting shell is close, but another RB, WR, or TE is still needed to complete the FLEX structure.'
+    : 'The starting lineup is covered, so the remaining weakness is bench ceiling and protection against injuries.';
+  const target=recommendations[0];
+  const archetype = !target ? (missing[0]?`the best value at ${missing[0]}`:'a high-upside bench player')
+    : target.position==='RB' ? 'a volume-backed running back with receiving or goal-line upside'
+    : target.position==='WR' ? 'a high-upside wide receiver with a dependable target path'
+    : target.position==='QB' ? 'a value quarterback with weekly rushing or touchdown ceiling'
+    : target.position==='TE' ? 'a tight end with a clear route and target advantage'
+    : target.position==='K' ? 'a reliable kicker attached to a productive offense'
+    : 'a defense with early-season matchup and pressure upside';
+  const next = target ? `Next, prioritize ${archetype}; ${target.name} is the strongest current example at tier ${target.tier}.`
+    : `Next, prioritize ${archetype} and avoid reaching beyond the current value tier.`;
+  return [build,strength,lacking,next].join(' ');
+}
+
 export function availabilityProbability(player, picksUntilNext) {
   if (picksUntilNext == null) return 0;
   const delta = player.adp - (player.currentPick + picksUntilNext);

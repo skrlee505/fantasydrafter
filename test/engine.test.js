@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, buildLiveFeedback, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -22,6 +22,17 @@ test('roster needs account for FLEX without inventing a starter', () => {
   assert.equal(result.needs.WR,1);
   assert.equal(result.needs.TE,0);
   assert.equal(result.needs.FLEX,3);
+});
+
+test('live feedback summarizes build strength, needs, and next archetype in four sentences', () => {
+  const roster=[player('w1','WR',{name:'Alpha Receiver'}),player('w2','WR',{name:'Beta Receiver'}),player('w3','WR',{name:'Gamma Receiver'}),player('r1','RB',{name:'Anchor Back'})];
+  const feedback=buildLiveFeedback(roster,[player('r2','RB',{name:'Volume Back',tier:2})],49);
+  assert.equal(feedback.split(/(?<=[.!?])\s+/).length,4);
+  assert.match(feedback,/receiver-led build/i);
+  assert.match(feedback,/strength is receiver depth/i);
+  assert.match(feedback,/starter coverage at QB, RB, and TE/i);
+  assert.match(feedback,/volume-backed running back/i);
+  assert.match(feedback,/Volume Back/);
 });
 
 test('early recommendation delays kicker and defense', () => {

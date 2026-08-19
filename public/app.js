@@ -1,5 +1,5 @@
 import { players, demoPicks } from './data.js';
-import { recommend, reconcilePicks, rosterNeeds, nextUserPick, evaluateDraft, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '/src/engine.js';
+import { recommend, reconcilePicks, rosterNeeds, buildLiveFeedback, nextUserPick, evaluateDraft, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '/src/engine.js';
 
 const LEAGUE_ID='1389736921957150721', REAL_DRAFT_ID='1389736921957150722', USER_ID='755351346516996096';
 const $=s=>document.querySelector(s);
@@ -41,6 +41,10 @@ function renderRecommendations(){
   const recs=recommend(state.playerPool,context());
   $('#recommendations').innerHTML=recs.length?recs.map((p,i)=>{const fallback=['Sleeper rank fallback','No projection mapping'].includes(p.projectionSource),strategyPositive=p.strategyAdjustment>=1,strategyNegative=p.strategyAdjustment<=-1,hasProjection=p.rankingProjectionProvided===true||p.baselineProjectionTrusted===true,projectionLabel=p.rankingProjectionProvided===true?'PROJ':p.projectionConfidence<1?'2025 PTS':'SLPR PROJ';const fit=i===0?'Best overall fit':p.position==='RB'?'Backfield value':p.position==='WR'?'Receiver value':p.position==='QB'?'Upside QB value':['K','DEF'].includes(p.position)?'Final-round starter need':'Tier value';const benefit=strategyPositive?`Strategy library +${p.strategyAdjustment.toFixed(1)}`:p.rankingSourceCount?`Ranked by ${p.rankingSourceCount} uploaded source${p.rankingSourceCount===1?'':'s'}`:p.vor>30?'Strong positional value':'Fits the current build';const market=p.adp<currentPick()?`${Math.round(currentPick()-p.adp)} picks past Sleeper baseline`:`Source ${Math.round(p.expertRank)} · Sleeper ${Math.round(p.adp)}`;const drawback=strategyNegative?`Strategy library ${p.strategyAdjustment.toFixed(1)}`:p.baselineProjectionTrusted&&p.projectionConfidence<1?'Prior-season stats fallback':fallback?'Low-confidence fallback data':p.risk>.18?'Elevated injury or role risk':p.position==='QB'&&myRoster().some(x=>x.position==='QB')?'Second-QB opportunity cost':p.availableNext>65?'May remain available next turn':'Could be drafted before next turn';return`<article class="rec-card"><span class="rank">${i+1}</span><div class="player-head"><div class="avatar ${posClass(p.position)}">${initials(p.name)}</div><div><b>${esc(p.name)}</b><span>${p.team} · ${p.position} · Bye ${p.bye}</span></div></div><div class="metrics"><div><b>${hasProjection?p.projection.toFixed(0):Math.round(p.expertRank)}</b><span>${hasProjection?projectionLabel:'SOURCE RK'}</span></div><div><b>T${p.tier}</b><span>TIER</span></div><div><b>${p.availableNext}%</b><span>NEXT PICK</span></div></div><div class="fit"><b>${fit}</b><span>${market}</span></div><ul class="pros"><li class="benefit">+ ${benefit}</li><li class="drawback">− ${drawback}</li></ul></article>`}).join(''):'<div class="empty-source recommendation-empty">Enable and upload at least one ranking source to generate recommendations.</div>';
 }
+function renderLiveFeedback(){
+  const recs=recommend(state.playerPool,context());
+  $('#liveFeedback').textContent=buildLiveFeedback(myRoster(),recs,currentPick());
+}
 function renderPlayers(){
   const drafted=new Set(draftedIds());
   const pool=state.playerPool.filter(p=>!drafted.has(p.id)).filter(p=>state.filter==='ALL'||p.position===state.filter).filter(p=>p.name.toLowerCase().includes(state.search)).sort((a,b)=>a.valueRank-b.valueRank);
@@ -73,7 +77,7 @@ function renderSessionHeader(){
   $('#leagueName').innerHTML=`${esc(state.draftName)}${state.mode==='mock'?'<span class="mode-badge">MOCK</span>':''}`;$('#leagueMeta').textContent=`${state.teams}-team · Pick ${state.userSlot} · ${state.rounds} rounds`;$('#boardMode').textContent=state.mode==='mock'?'LIVE SLEEPER MOCK':state.mode==='real'?'LIVE DRAFT':'DEMO DRAFT';$('#modeBtn').textContent=state.mode==='mock'?'Mock history':'Practice mocks';
   const statusLabel=phase==='complete'?'Draft complete':phase==='drafting'?'Live sync · 1 second':'Waiting for draft start';$('#syncStatus').innerHTML=`<i></i> ${statusLabel}`;
 }
-function render(){renderSessionHeader();renderRecommendations();renderPlayers();renderRoster();renderBoard();renderEvaluation()}
+function render(){renderSessionHeader();renderRecommendations();renderLiveFeedback();renderPlayers();renderRoster();renderBoard();renderEvaluation()}
 
 function saveMockSnapshot(){
   if(state.mode!=='mock')return;const existing=state.history.find(x=>x.draftId===state.activeDraftId),evaluation=currentEvaluation();const snapshot={draftId:state.activeDraftId,name:state.draftName,startedAt:existing?.startedAt||new Date().toISOString(),updatedAt:new Date().toISOString(),status:state.draftStatus,userSlot:state.userSlot,teams:state.teams,rounds:state.rounds,picks:state.sleeperPicks,evaluation};state.history=[snapshot,...state.history.filter(x=>x.draftId!==state.activeDraftId)].slice(0,30);persist();

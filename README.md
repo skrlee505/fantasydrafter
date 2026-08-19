@@ -15,6 +15,7 @@ Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> 
 ## What works
 
 - Five ranked, explained recommendations that react to every pick
+- Live 3–5 sentence draft feedback summarizing roster identity, strengths, missing pieces, and the next player archetype to target
 - Position-adjusted recommendation scoring so raw quarterback points cannot overwhelm RB/WR/TE roster value
 - Explicit penalties for an unnecessary second early quarterback
 - Hero RB preference, early-round QB/TE discipline, late K/DEF logic, risk and upside weighting
