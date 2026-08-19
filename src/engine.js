@@ -75,10 +75,15 @@ export function applyRankingSources(players = [], sources = [], options = {}) {
     }
     return{source,entries};
   });
-  return players.map(player => {
+  const resolved = players.map(player => {
     const key = `${canonicalPlayerName(player.name)}:${player.position}`;
     const matches = maps.map(({source,entries}) => ({ source, entry:entries.get(key)||(player.position==='DEF'&&player.team?entries.get(`defteam:${String(player.team).toUpperCase()}`):null) })).filter(match => match.entry);
-    if (!matches.length) return options.requireMatch ? null : { ...player, expertRank:player.expertRank ?? player.adp, rankingSourceCount:0, sourceEligible:false };
+    const sleeperAdp=Number.isFinite(Number(player.sleeperAdp))?Number(player.sleeperAdp):Number.isFinite(Number(player.adp))?Number(player.adp):null;
+    if (!matches.length) return options.requireMatch ? null : {
+      ...player,expertRank:null,sourceAdp:null,marketAdp:sleeperAdp??999,importedTier:null,
+      rankingSourceCount:0,activeRankingSourceCount:active.length,rankingSourceCoverage:0,
+      sourceEligible:false,rankingProjectionProvided:false,rankingAdpProvided:false,rankingSourceNames:[]
+    };
     const blend = field => {
       const usable = matches.filter(({entry}) => entry[field] !== null && entry[field] !== undefined && entry[field] !== '' && Number.isFinite(Number(entry[field])));
       if (!usable.length) return null;
@@ -86,12 +91,13 @@ export function applyRankingSources(players = [], sources = [], options = {}) {
       return usable.reduce((sum,{source,entry}) => sum + Number(entry[field]) * Number(source.weight || 1), 0) / total;
     };
     const rank=blend('rank'), importedAdp=blend('adp'), projection=blend('projection'), importedTier=blend('tier');
-    const sourceMarketRank=importedAdp ?? rank;
-    const sourceTier=importedTier ?? (sourceMarketRank != null ? Math.min(9,Math.max(1,Math.ceil(sourceMarketRank/24))) : null);
+    const marketAdp=importedAdp!=null&&sleeperAdp!=null?(importedAdp+sleeperAdp)/2:importedAdp??sleeperAdp??999;
+    const replacement={QB:270,RB:145,WR:155,TE:120,K:115,DEF:105}[player.position]||150;
     return {
       ...player,
-      ...(sourceMarketRank != null ? { adp:sourceMarketRank } : {}), ...(projection != null ? { projection } : {}), ...(sourceTier != null ? { tier:Math.max(1,Math.round(sourceTier)) } : {}),
+      ...(sleeperAdp != null ? { adp:sleeperAdp } : {}), ...(projection != null ? { projection,vor:(projection-replacement)*.45 } : {}),
       expertRank:rank ?? player.expertRank ?? player.adp,
+      sourceAdp:importedAdp,marketAdp,importedTier,
       rankingSourceCount:matches.length,
       activeRankingSourceCount:active.length,
       rankingSourceCoverage:matches.length/active.length,
@@ -103,6 +109,21 @@ export function applyRankingSources(players = [], sources = [], options = {}) {
       rankingSourceNames:matches.map(m=>m.source.name)
     };
   }).filter(Boolean);
+  const projectionOrder=[...resolved].sort((a,b)=>(Number(b.vor)||-999)-(Number(a.vor)||-999));
+  const projectionRank=new Map(projectionOrder.map((player,index)=>[player.id,index+1]));
+  const scored=resolved.map(player=>{
+    const marketRank=Number.isFinite(Number(player.marketAdp))?Number(player.marketAdp):999;
+    const sourceRank=player.expertRank!=null&&Number.isFinite(Number(player.expertRank))?Number(player.expertRank):marketRank;
+    const projectionValueRank=projectionRank.get(player.id)||resolved.length;
+    const coveragePenalty=(1-Number(player.rankingSourceCoverage||0))*8;
+    return{...player,projectionValueRank,valueScore:sourceRank*.75+marketRank*.15+projectionValueRank*.10+coveragePenalty};
+  }).sort((a,b)=>a.valueScore-b.valueScore);
+  const positionCounts={};
+  return scored.map((player,index)=>{
+    positionCounts[player.position]=(positionCounts[player.position]||0)+1;
+    const positionRank=positionCounts[player.position],tierSize=['RB','WR'].includes(player.position)?10:['QB','TE'].includes(player.position)?6:8;
+    return{...player,valueRank:index+1,positionRank,tier:player.importedTier!=null?Math.max(1,Math.round(player.importedTier)):Math.min(9,Math.ceil(positionRank/tierSize))};
+  });
 }
 
 const strategyDefinitions = [
