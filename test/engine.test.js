@@ -68,7 +68,20 @@ test('draft evaluation identifies values, reaches, and Hero RB execution', () =>
   assert.deepEqual(evaluation.values,['Anchor']);
   assert.deepEqual(evaluation.reaches,['Reach']);
   assert.match(evaluation.strategy,/Hero RB established/);
+  assert.ok(evaluation.strengths.every(sentence=>sentence.endsWith('.')));
+  assert.ok(evaluation.weaknesses.every(sentence=>sentence.endsWith('.')));
   assert.equal(evaluation.generatedAt,'fixed');
+});
+
+test('draft evaluation explains alignment with enabled strategy sources', () => {
+  const roster=[player('anchor','RB',{name:'Anchor Back'}),player('qb','QB',{name:'Patient QB'}),player('w1','WR'),player('w2','WR'),player('w3','WR'),player('w4','WR'),player('r2','RB'),player('r3','RB'),player('r4','RB'),player('te','TE'),player('k','K'),player('def','DEF'),player('b1','WR'),player('b2','RB'),player('b3','WR')];
+  const picks=roster.map((item,index)=>({...item,pick_no:[12,84,13,36,60,85,37,61,108,72,156,168,109,132,133][index],player_name:item.name})).sort((a,b)=>a.pick_no-b.pick_no);
+  const evaluation=evaluateDraft(roster,picks,{strategyProfile:{heroRb:1,qbPatience:1},strategySources:[{name:'Draft Playbook',enabled:true,weight:1}]});
+  assert.equal(evaluation.evaluationVersion,2);
+  assert.ok(evaluation.strategyExplanation.length>=3&&evaluation.strategyExplanation.length<=5);
+  assert.match(evaluation.strategyExplanation.join(' '),/Draft Playbook/);
+  assert.match(evaluation.strategyExplanation.join(' '),/followed 2 of 2 measurable strategy signals/);
+  assert.deepEqual(evaluation.strategyAlignment,{aligned:2,total:2,sources:['Draft Playbook']});
 });
 
 test('canonical names tolerate Sleeper suffix and punctuation differences', () => {

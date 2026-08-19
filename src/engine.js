@@ -380,22 +380,45 @@ export function evaluateDraft(roster = [], picks = [], options = {}) {
   const score = Math.round(Math.max(0,Math.min(100,starterQuality*.30+starterCoverage*.20+depthCoverage*.15+valueScore*.20+benchUpside*.10+riskScore*.05)));
   const grade = score >= 93?'A+':score >= 88?'A':score >= 83?'A-':score >= 78?'B+':score >= 72?'B':score >= 66?'B-':score >= 58?'C+':'C';
   const strengths = [];
-  if ((counts.WR||0) >= 4) strengths.push('Deep receiver room');
-  if ((counts.RB||0) >= 3) strengths.push('Strong running-back depth');
-  if ((counts.QB||0) >= 1 && (counts.TE||0) >= 1) strengths.push('Core onesie positions covered');
-  if (values.length) strengths.push(`${values.length} major ADP value${values.length===1?'':'s'}`);
-  if (!strengths.length) strengths.push('Flexible foundation');
-  const weaknesses = Object.entries(needs).filter(([p,n])=>p!=='FLEX'&&n>0).map(([p])=>`Still needs ${p}`);
-  if (risks.length >= 2) weaknesses.push('Elevated injury or role risk');
-  if (reaches.length) weaknesses.push(`${reaches.length} notable reach${reaches.length===1?'':'es'}`);
-  const firstRB = picks.find(p=>p.position==='RB');
+  if ((counts.WR||0) >= 4) strengths.push(`The receiver room is deep, with ${counts.WR} options supporting weekly lineup flexibility.`);
+  else strengths.push(`The roster currently carries ${counts.WR||0} wide receivers, leaving ${Math.max(0,4-(counts.WR||0))} spots before reaching strong depth.`);
+  if ((counts.RB||0) >= 3) strengths.push(`Running-back depth is a strength because ${counts.RB} backs provide workload and injury coverage.`);
+  else if ((counts.QB||0) >= 1 && (counts.TE||0) >= 1) strengths.push('Quarterback and tight end are both covered, reducing pressure at the onesie positions.');
+  else strengths.push('The build remains flexible, although its core starter foundation is not fully established yet.');
+  strengths.push(values.length?`The draft captured ${values.length} major ADP value${values.length===1?'':'s'}, improving the overall cost efficiency of the roster.`:'The roster stayed close to market cost, but it did not capture a full-round ADP discount.');
+  if(bench.length)strengths.push(`The bench produced a ${Math.round(benchUpside)} upside score, which ${benchUpside>=60?'adds meaningful breakout potential':'offers a stable but modest ceiling'}.`);
+  const missingPositions=Object.entries(needs).filter(([position,need])=>position!=='FLEX'&&need>0).map(([position])=>position);
+  const weaknesses = [];
+  weaknesses.push(missingPositions.length?`The roster still lacks required starter coverage at ${missingPositions.join(', ')}.`:'Every required starter position is covered, so no structural lineup hole remains.');
+  weaknesses.push(risks.length>=2?`${risks.length} players carry elevated injury or role risk, creating meaningful weekly volatility.`:'The roster has limited injury and role risk relative to its overall size.');
+  weaknesses.push(reaches.length?`${reaches.length} selection${reaches.length===1?' was':'s were'} made at least one round ahead of ADP, reducing draft value.`:'No selection was made a full round ahead of ADP, showing disciplined market timing.');
+  if(depthCoverage<75)weaknesses.push(`The depth score is ${Math.round(depthCoverage)}, so the bench remains thinner than the target roster structure.`);
+  const firstRB = picks.find(p=>p.position==='RB'),firstQB=picks.find(p=>p.position==='QB'),firstTE=picks.find(p=>p.position==='TE');
+  const strategyProfile=options.strategyProfile||{},activeStrategySources=(options.strategySources||[]).filter(source=>source.enabled!==false&&Number(source.weight)>0);
+  const stack=roster.some(player=>player.position==='QB'&&roster.some(teammate=>teammate.team===player.team&&['WR','TE'].includes(teammate.position)));
+  const lateRookie=picks.some(pick=>Number(pick.pick_no)>72&&Number(pick.yearsExp)===0);
+  const strategyChecks=[];
+  const heroSignal=Number(strategyProfile.heroRb||0),earlyRB=Boolean(firstRB&&Number(firstRB.pick_no)<=36);
+  if(Math.abs(heroSignal)>=.1)strategyChecks.push({aligned:heroSignal>0?earlyRB:!earlyRB,text:heroSignal>0?(earlyRB?`The build established its first running back by pick ${firstRB.pick_no}, matching Hero RB guidance.`:'The build did not establish an early anchor back, departing from Hero RB guidance.'):(earlyRB?`The early running-back selection worked against the library’s Zero RB preference.`:'The build delayed running back, matching the library’s Zero RB preference.')});
+  const qbSignal=Number(strategyProfile.qbPatience||0),lateQB=Boolean(!firstQB||Number(firstQB.pick_no)>60);
+  if(Math.abs(qbSignal)>=.1)strategyChecks.push({aligned:qbSignal>0?lateQB:!lateQB,text:qbSignal>0?(firstQB?`Quarterback was selected at pick ${firstQB.pick_no}, ${lateQB?'supporting':'working against'} the library’s patience signal.`:'No quarterback was selected, which follows patience advice but leaves the position unfilled.'):(firstQB&&Number(firstQB.pick_no)<=60?`Quarterback was selected at pick ${firstQB.pick_no}, matching the library’s early-QB preference.`:'The draft waited at quarterback, working against the library’s early-QB preference.')});
+  const teSignal=Number(strategyProfile.tePatience||0),lateTE=Boolean(!firstTE||Number(firstTE.pick_no)>48);
+  if(Math.abs(teSignal)>=.1)strategyChecks.push({aligned:teSignal>0?lateTE:!lateTE,text:teSignal>0?(firstTE?`Tight end was selected at pick ${firstTE.pick_no}, ${lateTE?'supporting':'working against'} the library’s timing guidance.`:'No tight end was selected, preserving patience but leaving a starter gap.'):(firstTE&&Number(firstTE.pick_no)<=48?`Tight end was selected at pick ${firstTE.pick_no}, matching the library’s early-TE preference.`:'The draft waited at tight end, working against the library’s early-TE preference.')});
+  if(Number(strategyProfile.stacking||0)>.1)strategyChecks.push({aligned:stack,text:stack?'The roster completed a quarterback pass-catcher stack, matching the library’s correlation preference.':'The roster did not complete a quarterback pass-catcher stack despite the library preference.'});
+  if(Number(strategyProfile.rookieUpside||0)>.1)strategyChecks.push({aligned:lateRookie,text:lateRookie?'A late rookie selection added the upside profile favored by the strategy library.':'The bench did not include a late rookie target, missing one library upside signal.'});
+  const sourceNames=activeStrategySources.map(source=>source.name).filter(Boolean),aligned=strategyChecks.filter(check=>check.aligned).length;
+  const strategyExplanation=[activeStrategySources.length?`This review applies ${activeStrategySources.length} enabled strategy source${activeStrategySources.length===1?'':'s'}: ${sourceNames.join(', ')}.`:'No strategy-library source is enabled, so the review uses only the baseline roster model.'];
+  strategyExplanation.push(...strategyChecks.slice(0,3).map(check=>check.text));
+  strategyExplanation.push(strategyChecks.length?`Overall, the draft followed ${aligned} of ${strategyChecks.length} measurable strategy signals, providing construction context alongside the projection, structure, and ADP grade.`:'Import or enable strategy guidance to compare this draft against a preferred construction plan.');
+  while(strategyExplanation.length<3)strategyExplanation.splice(strategyExplanation.length-1,0,'The baseline grade still weighs starter quality, roster coverage, depth, ADP value, upside, and risk.');
   return {
     score, grade:roster.length >= 15 ? grade : '—', provisionalGrade:grade, projection: Math.round(projection), strengths,
     weaknesses: weaknesses.length?weaknesses:['No critical structural weakness detected'],
     values: values.map(p=>p.player_name||p.name), reaches: reaches.map(p=>p.player_name||p.name),
     risks: risks.map(p=>p.name),
     strategy: firstRB && Number(firstRB.pick_no) <= 36 ? `Hero RB established with ${firstRB.player_name || firstRB.name}` : 'Hero RB was not forced; value dictated the build',
-    waiverPriorities: weaknesses.filter(x=>x.startsWith('Still needs')).map(x=>x.replace('Still needs ','')).slice(0,3),
+    strategyExplanation:strategyExplanation.slice(0,5),strategyAlignment:{aligned,total:strategyChecks.length,sources:sourceNames},
+    waiverPriorities: missingPositions.slice(0,3),evaluationVersion:2,
     dimensions:{starterQuality:Math.round(starterQuality),starterCoverage:Math.round(starterCoverage),depth:Math.round(depthCoverage),draftValue:Math.round(valueScore),benchUpside:Math.round(benchUpside),risk:Math.round(riskScore)},
     confidence:roster.length >= 15 ? (roster.some(p=>['Sleeper rank fallback','No projection mapping'].includes(p.projectionSource))?'Limited by fallback player data':'Projection-based; review source freshness') : `In progress · ${roster.length}/15 picks`,
     generatedAt: options.generatedAt || new Date().toISOString()

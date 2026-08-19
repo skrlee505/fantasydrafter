@@ -32,7 +32,8 @@ Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> 
 - Complete active Sleeper player pool with Sleeper player IDs as the canonical draft identity; bundled projections are attached through suffix-tolerant aliases
 - Serialized lightweight pick polling that never overlaps the larger player-map/session refresh
 - Saved mock history with isolated picks, manual recovery state, status, timestamps, and reopenable evaluations
-- Mock draft reviews covering starter quality, coverage, depth, draft value, bench upside, risk, Hero RB execution, and remaining needs
+- Strategy-aware mock reviews with complete narrative findings covering starter quality, coverage, depth, draft value, bench upside, risk, and construction-plan alignment
+- Automatic re-evaluation of historic mock drafts whenever the improved evaluator or active strategy library is loaded
 - Automatic Sleeper connection on startup, one-second pre-draft status monitoring, and one-second serialized pick polling from draft start through the final pick
 - Automatic polling shutdown at draft completion after the final mock snapshot and evaluation are saved
 - Manual pick entry/correction and undo, with manual state visually distinct
