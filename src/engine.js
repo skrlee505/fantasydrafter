@@ -135,6 +135,38 @@ const strategyDefinitions = [
   { id:'handcuffValue', label:'Handcuff at a fair price', positive:[/\bhandcuff\b/gi,/\bdirect\s+backup\b/gi], negative:[] }
 ];
 
+const playerTargetPatterns=[/\btarget\b/i,/\bprioriti[sz]e\b/i,/\bbreakout\b/i,/\bsleeper\b/i,/\bundervalued\b/i,/\bvalue\b/i,/\bupside\b/i,/\bbuy\b/i,/\bmust[- ]draft\b/i,/\bdraft\s+aggressively\b/i,/\blook\s+out\s+for\b/i,/\bwatch(?:list)?\b/i,/\bstash\b/i,/\bleague[- ]winner\b/i,/\briser\b/i,/\bfavou?rite\b/i,/\blove\b/i];
+const playerFadePatterns=[/\bavoid\b/i,/\bfade\b/i,/\bovervalued\b/i,/\bbust\b/i,/\bstay\s+away\b/i,/\bdo\s+not\s+draft\b/i,/\bdon['’]?t\s+draft\b/i,/\bdowngrade\b/i,/\boverdraft(?:ed)?\b/i,/\bsell\b/i,/\bmajor\s+risk\b/i,/\binjury\s+risk\b/i,/\btoo\s+expensive\b/i];
+const strategyWords=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[’']/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const playerNameAliases=name=>{
+  const full=strategyWords(name),withoutSuffix=full.replace(/\s+(jr|sr|ii|iii|iv|v)$/,'').trim();
+  return [...new Set([full,withoutSuffix].filter(alias=>alias.split(' ').length>=2&&alias.length>=5))];
+};
+
+function analyzePlayerGuidance(clean, players = []) {
+  const catalog=new Map();
+  for(const player of players){
+    if(!player?.name)continue;const key=canonicalPlayerName(player.name);
+    if(!key||catalog.has(key))continue;catalog.set(key,{key,name:player.name,aliases:playerNameAliases(player.name)});
+  }
+  const sentenceSafe=clean
+    .replace(/\b(Jr|Sr)\./gi,'$1§')
+    .replace(/\b([A-Z])\.(?=[A-Z]\.)/g,'$1§')
+    .replace(/\b([A-Z])\.(?=\s+[A-Z][a-z])/g,'$1§');
+  const sentences=(sentenceSafe.match(/[^.!?]+[.!?]?/g)||[sentenceSafe]).map(sentence=>sentence.replace(/§/g,'.')),found=new Map();
+  for(const sentence of sentences){
+    const normalized=strategyWords(sentence),positive=playerTargetPatterns.filter(pattern=>pattern.test(sentence)).length,negative=playerFadePatterns.filter(pattern=>pattern.test(sentence)).length;
+    if(!positive&&!negative)continue;
+    for(const player of catalog.values()){
+      if(!player.aliases.some(alias=>normalized.includes(alias)))continue;
+      const score=Math.max(-1,Math.min(1,(positive-negative)/Math.max(1,positive+negative)));
+      if(!score)continue;const current=found.get(player.key)||{key:player.key,name:player.name,total:0,mentions:0,reasons:[]};
+      current.total+=score;current.mentions+=1;if(current.reasons.length<3)current.reasons.push(sentence.trim().slice(0,220));found.set(player.key,current);
+    }
+  }
+  return [...found.values()].map(signal=>({key:signal.key,name:signal.name,score:Math.max(-1,Math.min(1,signal.total/signal.mentions)),direction:signal.total>0?'target':'avoid',mentions:signal.mentions,reasons:signal.reasons})).sort((a,b)=>Math.abs(b.score)-Math.abs(a.score)||a.name.localeCompare(b.name));
+}
+
 export function analyzeStrategyText(text = '', sourceName = 'Strategy article', metadata = {}) {
   const clean = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   if (clean.length < 40) throw new Error('Strategy text must contain at least 40 characters.');
@@ -146,9 +178,10 @@ export function analyzeStrategyText(text = '', sourceName = 'Strategy article', 
     const score = Math.max(-1,Math.min(1,(positive-negative)/Math.max(1,positive+negative)));
     if (positive || negative) { signals[definition.id]=score; detected.push({ id:definition.id,label:definition.label,score }); }
   }
+  const playerSignals=analyzePlayerGuidance(clean,metadata.players||[]);
   return {
     id:`strategy-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name:sourceName || 'Strategy article', weight:1, enabled:true,
-    signals, detected, excerpt:clean.slice(0,240), text:clean, characterCount:clean.length,
+    signals, detected, playerSignals, excerpt:clean.slice(0,240), text:clean, characterCount:clean.length,
     fileName:metadata.fileName||null, format:metadata.format||'text', importedAt:new Date().toISOString()
   };
 }
@@ -161,6 +194,13 @@ export function aggregateStrategySources(sources = []) {
     if(!contributors.length)continue;
     const total=contributors.reduce((sum,source)=>sum+Number(source.weight||1),0);
     profile[definition.id]=contributors.reduce((sum,source)=>sum+Number(source.signals[definition.id])*Number(source.weight||1),0)/total;
+  }
+  const playerKeys=new Set(active.flatMap(source=>(source.playerSignals||[]).map(signal=>signal.key)));
+  if(playerKeys.size)profile.playerSignals={};
+  for(const key of playerKeys){
+    const contributors=active.map(source=>({source,signal:(source.playerSignals||[]).find(signal=>signal.key===key)})).filter(item=>item.signal);
+    const total=contributors.reduce((sum,{source})=>sum+Number(source.weight||1),0),score=contributors.reduce((sum,{source,signal})=>sum+Number(signal.score||0)*Number(source.weight||1),0)/total;
+    profile.playerSignals[key]={score:Math.max(-1,Math.min(1,score)),sources:contributors.map(({source})=>source.name),reasons:contributors.flatMap(({signal})=>signal.reasons||[]).slice(0,4),mentions:contributors.reduce((sum,{signal})=>sum+Number(signal.mentions||1),0)};
   }
   return profile;
 }
@@ -337,7 +377,9 @@ export function strategyAdjustment(player, context, computed = {}) {
   if(player.position==='TE'&&round<=5&&player.tier===1)adjustment-=Number(profile.tePatience||0)*2;
   if(Number(player.yearsExp)===0&&round>=7)adjustment+=Math.max(0,Number(profile.rookieUpside||0))*6;
   if(computed.stack)adjustment+=Math.max(0,Number(profile.stacking||0))*3;
-  return Math.max(-12,Math.min(12,adjustment));
+  const playerSignal=profile.playerSignals?.[canonicalPlayerName(player.name)],playerScore=Number(playerSignal?.score||0);
+  adjustment+=playerScore>=0?playerScore*22:playerScore*34;
+  return Math.max(-40,Math.min(30,adjustment));
 }
 
 export function isDraftEligiblePlayer(player = {}) {
@@ -376,7 +418,7 @@ export function bestAvailableLeaders(players = [], context = {}) {
 export function recommend(players, context, count = 5) {
   const drafted = new Set(context.draftedIds || []);
   return players.filter(p => isDraftEligiblePlayer(p) && !drafted.has(p.id) && !context.doNotDraft?.includes(p.id) && (!context.requireUploadedSource || p.sourceEligible === true))
-    .map(p => ({ ...p, score: scorePlayer(p, context), strategyAdjustment:strategyAdjustment(p,context), availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
+    .map(p => ({ ...p, score: scorePlayer(p, context), strategyAdjustment:strategyAdjustment(p,context), strategyPlayerSignal:context.strategyProfile?.playerSignals?.[canonicalPlayerName(p.name)]||null, availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
     .sort((a,b) => b.score - a.score).slice(0, count);
 }
 

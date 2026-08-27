@@ -271,6 +271,21 @@ test('strategy articles produce transparent weighted recommendation signals', ()
   assert.ok(result.find(p=>p.id==='rb').strategyAdjustment>result.find(p=>p.id==='wr').strategyAdjustment);
 });
 
+test('strategy articles extract named-player targets and fades that materially reorder picks', () => {
+  const catalog=[player('btj','WR',{name:'Brian Thomas'}),player('najee','RB',{name:'Najee Harris'}),player('neutral','WR',{name:'Neutral Player'})];
+  const article=analyzeStrategyText('Target Brian Thomas Jr. as an undervalued breakout with major upside. Avoid Najee Harris because he is overvalued and carries major risk. Neutral Player is also discussed.','Player guide',{players:catalog});
+  assert.deepEqual(article.playerSignals.map(signal=>[signal.name,signal.direction]),[['Brian Thomas','target'],['Najee Harris','avoid']]);
+  assert.match(article.playerSignals[0].reasons[0],/Target Brian Thomas/);
+  const profile=aggregateStrategySources([article]);
+  assert.equal(profile.playerSignals.brianthomas.score,1);
+  assert.equal(profile.playerSignals.najeeharris.score,-1);
+  const result=recommend(catalog,{roster:[],currentPick:72,nextPick:84,draftedIds:[],doNotDraft:[],strategyProfile:profile},3);
+  assert.deepEqual(result.map(item=>item.id),['btj','neutral','najee']);
+  assert.ok(result[0].strategyAdjustment>=20);
+  assert.ok(result[2].strategyAdjustment<=-30);
+  assert.match(result[0].strategyPlayerSignal.reasons[0],/undervalued breakout/);
+});
+
 test('strategy sources retain complete cleaned text and import metadata', () => {
   const raw='<h1>Draft plan</h1> Wait on quarterback and target rookie upside on the bench throughout the later rounds.';
   const article=analyzeStrategyText(raw,'Guide',{fileName:'guide.pdf',format:'pdf'});
