@@ -22,7 +22,7 @@ Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> 
 - Multiple CSV ranking/projection sources with enable controls and adjustable blend weights
 - Current Sleeper ADP and season projections as the scoring baseline, with prior-season stats as a reduced-weight fallback
 - Durable on-Mac source library that survives app builds and browser-storage changes
-- Deep strategy-article analysis with PDF support, complete source retention, general roster guidance, and named-player targets/fades that materially affect recommendations
+- Separate strategy-article library with PDF support, complete source retention, and transparent capped recommendation adjustments
 - Best-available search, round-aware position leaders, and position filters; drafted players and NFL free agents are excluded
 - Searchable recommendation blacklist with persistent player exclusions
 - Persistent watchlist and do-not-draft list
