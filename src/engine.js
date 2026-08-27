@@ -340,9 +340,42 @@ export function strategyAdjustment(player, context, computed = {}) {
   return Math.max(-12,Math.min(12,adjustment));
 }
 
+export function isDraftEligiblePlayer(player = {}) {
+  const team=String(player.team||'').trim().toUpperCase();
+  const status=String(player.status||'').trim().toLowerCase();
+  return ['QB','RB','WR','TE','K','DEF'].includes(player.position)
+    && Boolean(team) && !['FA','NFL','NONE','N/A'].includes(team)
+    && player.active !== false && status !== 'inactive';
+}
+
+const bestAvailableValue = player => {
+  const usable=value=>value!==null&&value!==undefined&&value!==''&&Number.isFinite(Number(value));
+  if (usable(player.valueScore)) return Number(player.valueScore);
+  if (usable(player.valueRank)) return Number(player.valueRank);
+  if (usable(player.expertRank)) return Number(player.expertRank);
+  if (usable(player.marketAdp)) return Number(player.marketAdp);
+  if (usable(player.adp)) return Number(player.adp);
+  return 9999;
+};
+
+export function bestAvailablePlayers(players = [], context = {}, options = {}) {
+  const drafted=new Set(context.draftedIds||[]),position=options.position||'ALL',query=String(options.query||'').trim().toLowerCase();
+  const eligible=players.filter(player=>!drafted.has(player.id)&&isDraftEligiblePlayer(player)).sort((a,b)=>bestAvailableValue(a)-bestAvailableValue(b));
+  const positionCounts={};
+  const ranked=eligible.map(player=>({...player,availablePositionRank:(positionCounts[player.position]=(positionCounts[player.position]||0)+1)}));
+  return ranked.filter(player=>(position==='ALL'||player.position===position)&&(!query||player.name.toLowerCase().includes(query)));
+}
+
+export function bestAvailableLeaders(players = [], context = {}) {
+  const round=Math.max(1,Math.ceil(Number(context.currentPick||1)/Math.max(1,Number(context.teams||12))));
+  const positions=['QB','RB','WR','TE',...(round>=13?['K','DEF']:[])];
+  const available=bestAvailablePlayers(players,context);
+  return positions.map(position=>available.find(player=>player.position===position)).filter(Boolean);
+}
+
 export function recommend(players, context, count = 5) {
   const drafted = new Set(context.draftedIds || []);
-  return players.filter(p => !drafted.has(p.id) && !context.doNotDraft?.includes(p.id) && (!context.requireUploadedSource || p.sourceEligible === true))
+  return players.filter(p => isDraftEligiblePlayer(p) && !drafted.has(p.id) && !context.doNotDraft?.includes(p.id) && (!context.requireUploadedSource || p.sourceEligible === true))
     .map(p => ({ ...p, score: scorePlayer(p, context), strategyAdjustment:strategyAdjustment(p,context), availableNext: availabilityProbability({ ...p, currentPick: context.currentPick }, Math.max(0, (context.nextPick || context.currentPick) - context.currentPick)) }))
     .sort((a,b) => b.score - a.score).slice(0, count);
 }

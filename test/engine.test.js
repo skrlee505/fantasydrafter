@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextUserPick, userPickNumbers, rosterNeeds, buildLiveFeedback, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase } from '../src/engine.js';
+import { nextUserPick, userPickNumbers, rosterNeeds, buildLiveFeedback, recommend, reconcilePicks, evaluateDraft, canonicalPlayerName, mergeSleeperPlayerPool, parseRankingCsv, applyRankingSources, analyzeStrategyText, aggregateStrategySources, draftSyncPhase, bestAvailablePlayers, bestAvailableLeaders } from '../src/engine.js';
 
 const player = (id, position, extra={}) => ({ id, name:id, team:'TST', position, projection:220, adp:30, tier:3, vor:25, risk:.1, upside:.7, ...extra });
 
@@ -55,6 +55,25 @@ test('do-not-draft players are excluded without mutating ranking data', () => {
   const pool=[player('a','WR',{projection:260}),player('b','WR')];
   assert.deepEqual(recommend(pool,{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:['a']}).map(p=>p.id),['b']);
   assert.equal(pool[0].projection,260);
+});
+
+test('recommendations exclude NFL free agents even when their uploaded value is high', () => {
+  const pool=[player('free-agent','WR',{team:'FA',valueRank:1,projection:400}),player('rostered','WR',{team:'SEA',valueRank:2})];
+  assert.deepEqual(recommend(pool,{roster:[],currentPick:12,nextPick:13,draftedIds:[],doNotDraft:[]}).map(item=>item.id),['rostered']);
+});
+
+test('best available keeps the highest remaining rostered player at each position', () => {
+  const pool=[
+    player('qb1','QB',{team:'BUF',valueRank:4}),player('qb2','QB',{team:'BAL',valueRank:8}),
+    player('rb1','RB',{team:'DET',valueRank:1}),player('rb2','RB',{team:'ATL',valueRank:2}),
+    player('wr1','WR',{team:'CIN',valueRank:3}),player('free','WR',{team:'FA',valueRank:0}),
+    player('te1','TE',{team:'LV',valueRank:5}),player('k1','K',{team:'DAL',valueRank:9}),player('def1','DEF',{team:'DEN',valueRank:10})
+  ];
+  const available=bestAvailablePlayers(pool,{draftedIds:['rb1']});
+  assert.deepEqual(available.map(item=>item.id),['rb2','wr1','qb1','te1','qb2','k1','def1']);
+  assert.equal(available.find(item=>item.id==='rb2').availablePositionRank,1);
+  assert.deepEqual(bestAvailableLeaders(pool,{draftedIds:['rb1'],currentPick:25,teams:12}).map(item=>item.id),['qb1','rb2','wr1','te1']);
+  assert.deepEqual(bestAvailableLeaders(pool,{draftedIds:['rb1'],currentPick:145,teams:12}).map(item=>item.id),['qb1','rb2','wr1','te1','k1','def1']);
 });
 
 test('Sleeper confirmation wins over manual recovery at the same pick', () => {
