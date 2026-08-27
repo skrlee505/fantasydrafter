@@ -71,6 +71,7 @@ test('best available keeps the highest remaining rostered player at each positio
   ];
   const available=bestAvailablePlayers(pool,{draftedIds:['rb1']});
   assert.deepEqual(available.map(item=>item.id),['rb2','wr1','qb1','te1','qb2','k1','def1']);
+  assert.deepEqual(available.map(item=>item.availableValueRank),[1,2,3,4,5,6,7]);
   assert.equal(available.find(item=>item.id==='rb2').availablePositionRank,1);
   assert.deepEqual(bestAvailableLeaders(pool,{draftedIds:['rb1'],currentPick:25,teams:12}).map(item=>item.id),['qb1','rb2','wr1','te1']);
   assert.deepEqual(bestAvailableLeaders(pool,{draftedIds:['rb1'],currentPick:145,teams:12}).map(item=>item.id),['qb1','rb2','wr1','te1','k1','def1']);

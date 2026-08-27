@@ -362,7 +362,7 @@ export function bestAvailablePlayers(players = [], context = {}, options = {}) {
   const drafted=new Set(context.draftedIds||[]),position=options.position||'ALL',query=String(options.query||'').trim().toLowerCase();
   const eligible=players.filter(player=>!drafted.has(player.id)&&isDraftEligiblePlayer(player)).sort((a,b)=>bestAvailableValue(a)-bestAvailableValue(b));
   const positionCounts={};
-  const ranked=eligible.map(player=>({...player,availablePositionRank:(positionCounts[player.position]=(positionCounts[player.position]||0)+1)}));
+  const ranked=eligible.map((player,index)=>({...player,availableValueRank:index+1,availablePositionRank:(positionCounts[player.position]=(positionCounts[player.position]||0)+1)}));
   return ranked.filter(player=>(position==='ALL'||player.position===position)&&(!query||player.name.toLowerCase().includes(query)));
 }
 
