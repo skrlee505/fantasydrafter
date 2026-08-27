@@ -13,6 +13,7 @@ export function draftSyncPhase(status = 'pre_draft', pickCount = 0, totalPicks =
 }
 
 const numeric = value => {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
   const parsed = Number(String(value ?? '').replace(/[$,%]/g, '').trim());
   return Number.isFinite(parsed) ? parsed : null;
 };
@@ -350,6 +351,7 @@ export function isDraftEligiblePlayer(player = {}) {
 
 const bestAvailableValue = player => {
   const usable=value=>value!==null&&value!==undefined&&value!==''&&Number.isFinite(Number(value));
+  if (player.rankingProjectionProvided === true && usable(player.projectionValueRank)) return Number(player.projectionValueRank);
   if (usable(player.valueScore)) return Number(player.valueScore);
   if (usable(player.valueRank)) return Number(player.valueRank);
   if (usable(player.expertRank)) return Number(player.expertRank);
@@ -360,7 +362,12 @@ const bestAvailableValue = player => {
 
 export function bestAvailablePlayers(players = [], context = {}, options = {}) {
   const drafted=new Set(context.draftedIds||[]),position=options.position||'ALL',query=String(options.query||'').trim().toLowerCase();
-  const eligible=players.filter(player=>!drafted.has(player.id)&&isDraftEligiblePlayer(player)).sort((a,b)=>bestAvailableValue(a)-bestAvailableValue(b));
+  const sourceEligible=players.filter(player=>player.sourceEligible===true);
+  const useUploadedProjections=context.preferUploadedProjections===true&&sourceEligible.some(player=>player.rankingProjectionProvided===true);
+  const eligible=players.filter(player=>!drafted.has(player.id)&&isDraftEligiblePlayer(player)
+    &&(!context.requireUploadedSource||player.sourceEligible===true)
+    &&(!useUploadedProjections||player.rankingProjectionProvided===true))
+    .sort((a,b)=>bestAvailableValue(a)-bestAvailableValue(b));
   const positionCounts={};
   const ranked=eligible.map((player,index)=>({...player,availableValueRank:index+1,availablePositionRank:(positionCounts[player.position]=(positionCounts[player.position]||0)+1)}));
   return ranked.filter(player=>(position==='ALL'||player.position===position)&&(!query||player.name.toLowerCase().includes(query)));

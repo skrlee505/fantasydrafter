@@ -77,6 +77,21 @@ test('best available keeps the highest remaining rostered player at each positio
   assert.deepEqual(bestAvailableLeaders(pool,{draftedIds:['rb1'],currentPick:145,teams:12}).map(item=>item.id),['qb1','rb2','wr1','te1','k1','def1']);
 });
 
+test('best available uses uploaded projections and excludes unsourced late-round players', () => {
+  const projections=parseRankingCsv('Player,Pos,Rank,Projection\nProjected Receiver,WR,2,210\nProjected Back,RB,1,180','Projection sheet');
+  const ranks=parseRankingCsv('Player,Pos,Rank\nRank-only Tight End,TE,3','Rank sheet');
+  const pool=applyRankingSources([
+    player('receiver','WR',{name:'Projected Receiver'}),
+    player('back','RB',{name:'Projected Back'}),
+    player('tight-end','TE',{name:'Rank-only Tight End'}),
+    player('irrelevant','QB',{name:'Unsourced Depth Player',valueRank:1,adp:1})
+  ],[projections,ranks]);
+  const available=bestAvailablePlayers(pool,{draftedIds:[],requireUploadedSource:true,preferUploadedProjections:true});
+  assert.deepEqual(available.map(item=>item.id),['receiver','back']);
+  assert.ok(available.every(item=>item.rankingProjectionProvided===true));
+  assert.deepEqual(bestAvailableLeaders(pool,{draftedIds:[],currentPick:145,teams:12,requireUploadedSource:true,preferUploadedProjections:true}).map(item=>item.id),['back','receiver']);
+});
+
 test('Sleeper confirmation wins over manual recovery at the same pick', () => {
   const merged=reconcilePicks([{pick_no:12,player_id:'confirmed'}],[{pick_no:12,player_id:'manual'},{pick_no:13,player_id:'next'}]);
   assert.deepEqual(merged.map(p=>[p.pick_no,p.player_id,p.source]),[[12,'confirmed','sleeper'],[13,'next','manual']]);
