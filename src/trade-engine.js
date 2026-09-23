@@ -1,6 +1,20 @@
 // Pure, shared trade calculations. No network, draft rankings, or generated facts.
 export const VERSION = 'trade-1.0';
 export const DEFAULT_BRIEF = {shop:['9226','5927'], required:true, protected:['7594'], risk:'consistency', goal:'WR', returnPositions:['RB','WR'], excluded:[], excludedTeams:[], partner:'', filter:'all', diversity:true, horizon:'season'};
+export function editBriefPlayers(brief,key,id,action='add') {
+  const next=structuredClone(brief);
+  if(!['shop','protected'].includes(key)||!id)return next;
+  const other=key==='shop'?'protected':'shop';
+  next[key]=[...new Set(next[key]||[])];
+  next[other]=[...new Set(next[other]||[])];
+  if(action==='remove')next[key]=next[key].filter(playerId=>playerId!==id);
+  else {
+    next[key]=[...next[key].filter(playerId=>playerId!==id),id];
+    next[other]=next[other].filter(playerId=>playerId!==id);
+    if(key==='shop'&&next.shop.length>2)next.required=false;
+  }
+  return next;
+}
 const activeSlots = league => (league.roster_positions || []).filter(p => !['BN','IR','TAXI'].includes(p));
 const finite = x => typeof x === 'number' && Number.isFinite(x);
 const avg = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;
@@ -32,7 +46,8 @@ export function usage(ctx,id) {
   const scores=recent.map(g=>scoreStats(g.stats,ctx.league.scoring_settings));
   const mean=avg(opportunities), cv=mean>0?deviation(opportunities)/mean:null;
   const snap=normal.filter(g=>g.stats.tm_off_snp>0).map(g=>(g.stats.off_snp||0)/g.stats.tm_off_snp);
-  return {games:recent.length,normalGames:normal.length,mean,cv,snap:avg(snap),carries:avg(normal.map(g=>g.stats.rush_att||0)),targets:avg(normal.map(g=>g.stats.rec_tgt||0)),scoreSD:deviation(scores),label:normal.length<3?'Consistency not established':cv<=.25?'Steadier recent workload':cv>.5?'Variable recent workload':'Mixed recent workload',confidence:normal.length<3?'Limited sample':'Recent sample only',rows:recent};
+  const targetShares=normal.map(g=>g.stats.target_share).filter(finite),airShares=normal.map(g=>g.stats.air_yd_share).filter(finite);
+  return {games:recent.length,normalGames:normal.length,mean,cv,snap:avg(snap),carries:avg(normal.map(g=>g.stats.rush_att||0)),targets:avg(normal.map(g=>g.stats.rec_tgt||0)),targetShare:avg(targetShares),airYardShare:avg(airShares),scoreSD:deviation(scores),label:normal.length<3?'Consistency not established':cv<=.25?'Steadier recent workload':cv>.5?'Variable recent workload':'Mixed recent workload',confidence:normal.length<3?'Limited sample':'Recent sample only',rows:recent};
 }
 
 // Rectangular Hungarian assignment: optimal legal lineup in polynomial time.
@@ -62,7 +77,8 @@ export function lineup(ctx,ids,week) {
   }
   const assigned=Array(n).fill(null);
   for(let j=1;j<=available.length;j++)if(p[j])assigned[p[j]-1]=available[j-1];
-  const result={points:round(assigned.reduce((sum,a)=>sum+(a?.points||0),0)),slots:slots.map((slot,i)=>({slot,id:assigned[i]?.id||null,points:assigned[i]?.points??null})),missing,complete:!missing.length&&assigned.every(Boolean)};
+  const filled=assigned.every(Boolean);
+  const result={points:round(assigned.reduce((sum,a)=>sum+(a?.points||0),0)),slots:slots.map((slot,i)=>({slot,id:assigned[i]?.id||null,points:assigned[i]?.points??null})),missing,filled,complete:!missing.length&&filled};
   if(memo.size>15000)memo.clear();memo.set(key,result);return result;
 }
 export function playerValue(ctx,id,weeks) {
@@ -104,17 +120,23 @@ function teamImpact(ctx,team,outgoing,incoming,weeks,protectedIds) {
   const raw=[...beforeIds.filter(id=>!outgoing.includes(id)),...incoming];
   const capacity=ctx.league.roster_positions.filter(x=>!['IR','TAXI'].includes(x)).length;
   const needsDrop=Math.max(0,raw.length-capacity);
-  const dataComplete=[...new Set([...beforeIds,...raw])].every(id=>weeks.every(w=>projection(ctx,id,w)!==null));
-  const adjusted=needsDrop&&dataComplete?bestDrop(ctx,raw,weeks,needsDrop,protectedIds):{ids:raw,drops:[]};
+  const hasCoverage=id=>weeks.every(w=>projection(ctx,id,w)!==null);
+  const criticalCoverage=[...new Set([...outgoing,...incoming])].every(hasCoverage);
+  // A required drop compares the whole active roster; unknown depth can change which
+  // player should be released. Equal-size trades only require the traded players and
+  // filled optimized lineups, so an unrelated bench gap does not erase the result.
+  const dropCoverage=!needsDrop||raw.every(hasCoverage);
+  const adjusted=needsDrop&&dropCoverage?bestDrop(ctx,raw,weeks,needsDrop,protectedIds):{ids:raw,drops:[]};
   const weekly=weeks.map(week=>({week,before:lineup(ctx,beforeIds,week),after:lineup(ctx,adjusted.ids,week)}));
-  const complete=dataComplete&&weekly.length>0&&weekly.every(w=>w.before.complete&&w.after.complete)&&adjusted.drops.length===needsDrop;
+  const coverageMissing=[...new Set(weekly.flatMap(w=>[...w.before.missing,...w.after.missing]))];
+  const complete=criticalCoverage&&dropCoverage&&weekly.length>0&&weekly.every(w=>w.before.filled&&w.after.filled)&&adjusted.drops.length===needsDrop;
   const total=complete?round(weekly.reduce((s,w)=>s+w.after.points-w.before.points,0)):null;
   const first=weekly[0];
   const openSpots=Math.max(0,capacity-adjusted.ids.length);
   const thinPositions=activeSlots(ctx.league).filter(slot=>!['FLEX','SUPER_FLEX','REC_FLEX','WRRB_FLEX'].includes(slot)).filter(slot=>weekly.some(w=>w.after.slots.some(s=>s.slot===slot&&(!s.id||s.points===0))));
   const waiverOptions=(openSpots||thinPositions.length)?waiverPool(ctx,weeks).filter(p=>!thinPositions.length||thinPositions.includes(ctx.players[p.id].position)).slice(0,3):[];
   const goalDelta=Object.fromEntries(['QB','RB','WR','TE'].map(pos=>[pos,complete?round(avg(weekly.map(w=>w.after.slots.filter(s=>ctx.players[s.id]?.position===pos).reduce((s,x)=>s+x.points,0)-w.before.slots.filter(s=>ctx.players[s.id]?.position===pos).reduce((s,x)=>s+x.points,0)))):null]));
-  return {weekly,complete,total,average:complete?round(total/weeks.length):null,needsDrop,drops:adjusted.drops,openSpots,waiverOptions,beforeIds,afterIds:adjusted.ids,rolesBefore:roleCount(ctx,beforeIds),rolesAfter:roleCount(ctx,adjusted.ids),goalDelta,starterChanges:first?first.after.slots.filter(s=>s.id&&!first.before.slots.some(b=>b.id===s.id)).map(s=>s.id):[]};
+  return {weekly,complete,coverage:coverageMissing.length?'partial':'full',coverageMissing,criticalCoverage,dropCoverage,total,average:complete?round(total/weeks.length):null,needsDrop,drops:adjusted.drops,openSpots,waiverOptions,beforeIds,afterIds:adjusted.ids,rolesBefore:roleCount(ctx,beforeIds),rolesAfter:roleCount(ctx,adjusted.ids),goalDelta,starterChanges:first?first.after.slots.filter(s=>s.id&&!first.before.slots.some(b=>b.id===s.id)).map(s=>s.id):[]};
 }
 export function evaluateTrade(ctx,offer,brief=DEFAULT_BRIEF) {
   const weeks=weeksFor(ctx,brief), errors=[];
@@ -160,10 +182,11 @@ export function evaluateTrade(ctx,offer,brief=DEFAULT_BRIEF) {
   // Documented discovery ordering: production + goal + both-team fit, then measured variability preference.
   const riskAdjustment=stabilityGain===null?0:brief.risk==='consistency'?stabilityGain*3:brief.risk==='upside'?-stabilityGain:0;
   const rankScore=complete?round(production*3+(goalGain||0)*2+Math.min(side2.average,2)+riskAdjustment):-Infinity;
-  const missing=[...new Set([...side1.weekly,...side2.weekly].flatMap(w=>[...w.before.missing,...w.after.missing]))];
+  const missing=[...new Set([...side1.coverageMissing,...side2.coverageMissing])];
+  const partialCoverage=complete&&missing.length>0;
   return {...base,valid:true,complete,side1,side2,verdict,reason,label,rankScore,stabilityGain,marketGap,marketA:ma,marketB:mb,missing,
     partnerReason:side2.complete?side2.average>0?`Their estimated starters gain ${side2.average.toFixed(1)} points per week.`:side2.average<0?`Their estimated starters lose ${Math.abs(side2.average).toFixed(1)} points per week; they need a player preference or other reason to agree.`:'Their estimated starting-lineup points are nearly unchanged.':'Their incentive cannot be quantified until projection coverage is complete.',
-    caveats:[...(offer.hypothetical?['Hypothetical ownership scenario.']:[]),...(availabilityConcern.length?[`Availability needs verification: ${availabilityConcern.map(id=>nameOf(ctx,id)).join(', ')}. Future projections do not confirm a return date.`]:[]),...(stabilityGain===null?['Consistency not established: at least three completed normal-role games are required for both RB sides.']:[]),...(marketGap===null?['Comparable current market values are unavailable. Balance labels use projected lineup impact, not trade-market pricing.']:[]),...(ctx.unsupportedScoring?.length?[`Not modeled: ${ctx.unsupportedScoring.join(', ')}.`]:[]),...(ctx.newsAvailable?[]:['No current reporting feed is connected. Verify quarterback and role changes separately.']),...(side1.openSpots||side2.openSpots?['Open roster spots are not credited with hypothetical waiver points.']:[])]};
+    caveats:[...(offer.hypothetical?['Hypothetical ownership scenario.']:[]),...(partialCoverage?[`Partial roster coverage: ${missing.map(id=>nameOf(ctx,id)).join(', ')} lack projections in at least one selected week. They were not required to fill the optimized lineups, but could change depth or substitution decisions.`]:[]),...(availabilityConcern.length?[`Availability needs verification: ${availabilityConcern.map(id=>nameOf(ctx,id)).join(', ')}. Future projections do not confirm a return date.`]:[]),...(stabilityGain===null?['Consistency not established: at least three completed normal-role games are required for both RB sides.']:[]),...(marketGap===null?['Comparable current market values are unavailable. Balance labels use projected lineup impact, not trade-market pricing.']:[]),...(ctx.unsupportedScoring?.length?[`Not modeled: ${ctx.unsupportedScoring.join(', ')}.`]:[]),...(ctx.newsAvailable?[]:['No current reporting feed is connected. Verify quarterback and role changes separately.']),...(side1.openSpots||side2.openSpots?['Open roster spots are not credited with hypothetical waiver points.']:[])]};
 }
 
 export function matchupContext(ctx,teamId) {

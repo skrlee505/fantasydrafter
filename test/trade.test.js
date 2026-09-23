@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_BRIEF,scoreStats,lineup,evaluateTrade,discoverTrades,negotiationPlan,usage,importEvidence,applyEvidence,matchupContext} from '../src/trade-engine.js';
+import {DEFAULT_BRIEF,scoreStats,lineup,evaluateTrade,discoverTrades,negotiationPlan,usage,importEvidence,applyEvidence,matchupContext,editBriefPlayers} from '../src/trade-engine.js';
 
 function fixture(){
   const definitions={ar:['RB',18],aw:['WR',10],ab:['RB',8],ax:['WR',7],br:['RB',14],bw:['WR',17],bb:['RB',10],bx:['WR',6]};
@@ -14,6 +14,22 @@ function fixture(){
 }
 const brief=()=>({...structuredClone(DEFAULT_BRIEF),shop:['ar','aw'],protected:['ab'],returnPositions:['RB','WR'],risk:'balanced'});
 const offer=()=>({a:1,b:2,give:['ar','aw'],get:['br','bw']});
+
+test('shopping and protection lists can add, move, and remove players',()=>{
+  let edited={...brief(),shop:['ar'],protected:['ab']};
+  edited=editBriefPlayers(edited,'shop','aw');
+  assert.deepEqual(edited.shop,['ar','aw']);
+  edited=editBriefPlayers(edited,'protected','aw');
+  assert.deepEqual(edited.shop,['ar']);assert.deepEqual(edited.protected,['ab','aw']);
+  edited=editBriefPlayers(edited,'shop','ab');
+  assert.deepEqual(edited.shop,['ar','ab']);assert.deepEqual(edited.protected,['aw']);
+  edited=editBriefPlayers(edited,'protected','aw','remove');
+  assert.deepEqual(edited.protected,[]);
+});
+test('a third shopping candidate keeps automatic packages usable',()=>{
+  const edited=editBriefPlayers({...brief(),shop:['ar','aw'],required:true},'shop','ax');
+  assert.deepEqual(edited.shop,['ar','aw','ax']);assert.equal(edited.required,false);
+});
 
 test('custom stat scoring includes receptions and supplied bonuses, never rank units',()=>{
   assert.equal(scoreStats({rec:4,rec_yd:100,rec_td:1,bonus_rec_yd_200:0,rank:1},{rec:.5,rec_yd:.1,rec_td:6,bonus_rec_yd_200:5}),18);
@@ -32,8 +48,11 @@ test('ownership, same teams, and duplicated players cannot form a valid trade',(
   const c=fixture();for(const o of [{...offer(),give:['br']},{...offer(),b:1},{...offer(),get:['ar']}])assert.equal(evaluateTrade(c,o,brief()).valid,false);
   assert.equal(evaluateTrade(c,{...offer(),give:['br'],get:['aw'],hypothetical:true},brief()).valid,true);
 });
-test('a missing projection suppresses numeric lineup gain instead of acting as zero',()=>{
-  const c=fixture();delete c.projections.ax[5];const r=evaluateTrade(c,offer(),brief());assert.equal(r.verdict,'Insufficient evidence');assert.equal(r.side1.average,null);assert.ok(r.missing.includes('ax'));
+test('an unrelated bench projection gap is disclosed without suppressing lineup gain',()=>{
+  const c=fixture();delete c.projections.ax[5];const r=evaluateTrade(c,offer(),brief());assert.equal(r.complete,true);assert.equal(r.side1.average,3);assert.ok(r.missing.includes('ax'));assert.match(r.caveats.join(' '),/Partial roster coverage/);
+});
+test('a missing traded-player projection still suppresses numeric lineup gain',()=>{
+  const c=fixture();delete c.projections.ar[5];const r=evaluateTrade(c,offer(),brief());assert.equal(r.verdict,'Insufficient evidence');assert.equal(r.side1.average,null);assert.ok(r.missing.includes('ar'));
 });
 test('explicit bye is a valid zero but absent week remains unknown',()=>{
   const c=fixture();c.projections.ar[4]={bye:true};assert.equal(lineup(c,c.teams[0].players,4).complete,true);delete c.projections.ar[5];assert.equal(lineup(c,c.teams[0].players,5).complete,false);
@@ -85,8 +104,8 @@ test('deadline and disabled trading are enforced',()=>{
 test('ADP-only rows are not zero point projections even if timestamped',()=>{
   const c=fixture();c.projections.ar[4]={asOf:new Date().toISOString(),stats:{adp_dd_ppr:1}};assert.equal(evaluateTrade(c,offer(),brief()).complete,false);
 });
-test('incomplete research candidates never claim lineup gains or a recommendation',()=>{
-  const c=fixture();delete c.projections.ax[4];const it=discoverTrades(c,brief());let r;do{r=it.next();}while(!r.done);assert.ok(r.value.offers.length);for(const o of r.value.offers){assert.equal(o.verdict,'Insufficient evidence');assert.equal(o.side1.average,null);assert.equal(o.research,true);}
+test('a required drop remains unresolved when depth projections are missing',()=>{
+  const c=fixture();delete c.projections.ax[4];const r=evaluateTrade(c,{a:1,b:2,give:['ar'],get:['br','bw']},{...brief(),protected:[]});assert.equal(r.complete,false);assert.equal(r.verdict,'Insufficient evidence');assert.equal(r.side1.average,null);assert.equal(r.side1.dropCoverage,false);
 });
 test('changing scoring changes the optimized lineup and trade assessment',()=>{
   const c=fixture();c.projections.ax[4].stats={rec:20};const a=lineup(c,c.teams[0].players,4);const standard=structuredClone(c);standard.league.scoring_settings.rec=0;const b=lineup(standard,standard.teams[0].players,4);assert.notDeepEqual(a.slots.map(x=>x.id),b.slots.map(x=>x.id));

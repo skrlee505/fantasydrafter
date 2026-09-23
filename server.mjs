@@ -46,4 +46,4 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => console.log(`Draft room ready at http://127.0.0.1:${port}`));
+server.listen(port, '127.0.0.1', () => console.log(`Draftside ready at http://127.0.0.1:${port}`));

@@ -1,4 +1,4 @@
-import {DEFAULT_BRIEF,VERSION,evaluateTrade,negotiationPlan,usage,nameOf,weeksFor,playerValue,matchupContext,importEvidence,applyEvidence} from '/src/trade-engine.js';
+import {DEFAULT_BRIEF,VERSION,evaluateTrade,negotiationPlan,usage,nameOf,weeksFor,playerValue,matchupContext,importEvidence,applyEvidence,editBriefPlayers} from '/src/trade-engine.js';
 
 const LEAGUE='1389736921957150721',USER='755351346516996096';
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -42,10 +42,16 @@ async function refresh(){
   finally{state.loading=false;$('#refresh').disabled=false;if(state.context){renderBrief();renderSaved();renderWorkspace();}}
 }
 function renderBrief(){
-  const ids=me()?.players||[];
-  const selectPlayers=(key,list)=>`<select aria-label="${key==='shop'?'Players to shop':'Protected players'}" multiple data-brief="${key}">${list.map(id=>`<option value="${esc(id)}" ${state.brief[key].includes(id)?'selected':''}>${esc(name(id))}</option>`).join('')}</select>`;
-  $('#brief').innerHTML=`<div><label>Players to shop${selectPlayers('shop',ids)}</label><div class="brief-chips">${state.brief.shop.map(id=>`<span class="brief-chip">${esc(name(id))}</span>`).join('')}</div><label class="check"><input type="checkbox" data-brief="required" ${state.brief.required?'checked':''}>Require every selected player</label></div>
-    <div><label>Protected players${selectPlayers('protected',ids)}</label><div class="brief-chips">${state.brief.protected.map(id=>`<span class="brief-chip protected">${esc(name(id))}</span>`).join('')}</div><p class="brief-help">Never included in outgoing offers or concessions. Use ⌘/Ctrl to select multiple.</p></div>
+  const ids=(me()?.players||[]).slice().sort((a,b)=>`${state.context.players[a]?.position||''} ${name(a)}`.localeCompare(`${state.context.players[b]?.position||''} ${name(b)}`));
+  const playerEditor=(key)=>{
+    const protectedList=key==='protected',selected=state.brief[key]||[],other=key==='shop'?'protected':'shop';
+    const chips=selected.length?selected.map(id=>`<span class="brief-chip ${protectedList?'protected':''}">${esc(name(id))}<button type="button" data-brief-remove="${key}" data-player="${esc(id)}" aria-label="Remove ${esc(name(id))} from ${protectedList?'protected players':'players to shop'}">×</button></span>`).join(''):'<span class="brief-empty">No players selected.</span>';
+    const choices=ids.filter(id=>!selected.includes(id)).map(id=>`<option value="${esc(id)}">${esc(state.context.players[id]?.position||'—')} · ${esc(name(id))}${state.brief[other]?.includes(id)?` · currently ${other==='protected'?'protected':'shopped'}`:''}</option>`).join('');
+    return `<div class="brief-chips">${chips}</div><select class="brief-add" data-brief-add="${key}" aria-label="Add a player to ${protectedList?'protected players':'players to shop'}"><option value="">Add a player…</option>${choices}</select>`;
+  };
+  const requireDisabled=state.brief.shop.length>2;
+  $('#brief').innerHTML=`<div><label>Players to shop</label>${playerEditor('shop')}<p class="brief-help">Add several candidates. Automatic search considers one- and two-player packages containing at least one selected player.</p><label class="check"><input type="checkbox" data-brief="required" ${state.brief.required?'checked':''} ${requireDisabled?'disabled':''}>Require every selected player in each offer</label>${requireDisabled?'<p class="brief-help">This option is available when one or two players are selected.</p>':''}</div>
+    <div><label>Protected players</label>${playerEditor('protected')}<p class="brief-help">Never included in outgoing offers or concessions.</p></div>
     <div><label>Improve at<select data-brief="goal">${options(['WR','RB','TE','QB'].map(p=>[p,p]),state.brief.goal)}</select></label></div>
     <div><label>Priority<select data-brief="risk">${options([['consistency','Consistency'],['balanced','Balanced'],['upside','Upside']],state.brief.risk)}</select></label></div>
     <div><label>Analysis horizon<select data-brief="horizon">${options([['season','Remaining season'],['three','Next three weeks']],state.brief.horizon)}</select></label><p class="brief-help">Weeks ${weeksFor(state.context,state.brief).join(', ')||'—'}. Future weeks only.</p></div>
@@ -104,10 +110,10 @@ function resultMarkup(r,compact=false){
   return `<section class="trade-card"><div class="result-head ${tone}"><span class="pill ${r.complete?'':'amber'}">${esc(r.label)} · ${r.weeks.length} weeks</span><h2>${esc(r.verdict)}</h2><p>${esc(r.reason)}</p></div>
     <div class="impact-grid"><div class="impact"><span>Side 1 · points / week</span><b class="${r.side1.average>=0?'positive':'negative-number'}">${signed(r.side1.average)}</b><small>${signed(r.side1.total)} over the horizon</small></div><div class="impact"><span>Side 2 · points / week</span><b>${signed(r.side2.average)}</b><small>${signed(r.side2.total)} over the horizon</small></div><div class="impact"><span>Side 1 · ${esc(state.brief.goal)} contribution / week</span><b>${signed(r.side1.goalDelta[state.brief.goal])}</b><small>Across occupied starting slots</small></div></div>
     <p class="muted">${esc(r.partnerReason)}</p>
-    ${!r.complete?`<div class="evidence-note">Gains are withheld because the roster/horizon is incomplete. Missing or stale projections: ${esc(r.missing.map(name).slice(0,12).join(', '))}${r.missing.length>12?` and ${r.missing.length-12} more`:''}. Try the next-three-weeks horizon or import current evidence.</div>`:''}
+    ${!r.complete?`<div class="evidence-note">Gains are withheld because a traded player, required drop, or legal starter cannot be evaluated. Missing or stale projections: ${esc(r.missing.map(name).slice(0,12).join(', '))}${r.missing.length>12?` and ${r.missing.length-12} more`:''}. Try the next-three-weeks horizon or import current evidence.</div>`:''}
     ${r.caveats.length?`<details ${!r.complete?'open':''}><summary>Evidence & limitations</summary><ul>${r.caveats.map(c=>`<li>${esc(c)}</li>`).join('')}</ul><p class="footnote">Market gap: ${r.marketGap===null?'Unavailable':`${signed(r.marketGap)} units (${esc(r.marketA.scale)})`}. Market units are not fantasy points.</p></details>`:''}
     ${compact?'':`<details><summary>Before & after lineups</summary><div class="tables">${lineupTable(r.side1,team(r.offer.a)?.manager)}${lineupTable(r.side2,team(r.offer.b)?.manager)}</div><p class="footnote">Submitted starters: ${esc(team(r.offer.a)?.starters.map(name).join(', '))}</p></details>
-    <details><summary>Week-by-week outlook</summary><div class="table-wrap"><table><thead><tr><th>Week</th><th>Side 1 before</th><th>After</th><th>Change</th><th>Side 2 change</th></tr></thead><tbody>${r.side1.weekly.map((w,i)=>`<tr><td>${w.week}</td><td>${w.before.complete?fmt(w.before.points):'Incomplete'}</td><td>${w.after.complete?fmt(w.after.points):'Incomplete'}</td><td>${w.before.complete&&w.after.complete?signed(w.after.points-w.before.points):'—'}</td><td>${r.side2.weekly[i].before.complete&&r.side2.weekly[i].after.complete?signed(r.side2.weekly[i].after.points-r.side2.weekly[i].before.points):'—'}</td></tr>`).join('')}</tbody></table></div></details>
+    <details><summary>Week-by-week outlook</summary><div class="table-wrap"><table><thead><tr><th>Week</th><th>Side 1 before</th><th>After</th><th>Change</th><th>Side 2 change</th></tr></thead><tbody>${r.side1.weekly.map((w,i)=>`<tr><td>${w.week}</td><td>${w.before.filled?fmt(w.before.points):'Incomplete'}</td><td>${w.after.filled?fmt(w.after.points):'Incomplete'}</td><td>${w.before.filled&&w.after.filled?signed(w.after.points-w.before.points):'—'}</td><td>${r.side2.weekly[i].before.filled&&r.side2.weekly[i].after.filled?signed(r.side2.weekly[i].after.points-r.side2.weekly[i].before.points):'—'}</td></tr>`).join('')}</tbody></table></div></details>
     <details><summary>Player workload & availability</summary>${[...r.offer.give,...r.offer.get].map(id=>{const u=usage(state.context,id);return `<p>${playerButton(id)} · ${esc(u.label)}<br><span class="muted">${u.games} completed games · ${fmt(u.mean)} carries + targets/game · ${u.snap===null?'snap share unavailable':`${Math.round(u.snap*100)}% offensive snaps`} · ${esc(state.context.players[id]?.injury||'No designation in player directory')}</span></p>`;}).join('')}</details>`}
     <p class="footnote">${esc(VERSION)} · Snapshot ${time(state.context.fetchedAt)} · Stats scored to your league; listed unsupported categories are excluded.</p></section>`;
 }
@@ -187,7 +193,7 @@ function sourcesDialog(){
 function showPlayer(id){
   const ctx=state.context,p=ctx.players[id],u=usage(ctx,id);if(!p)return;
   $('#player-title').textContent=p.name;
-  $('#player-content').innerHTML=`<p>${esc(p.position)} · ${esc(p.team||'Free agent')} · ${esc(p.injury||'No designation in Sleeper directory')}</p><span class="pill amber">${esc(u.label)}</span><p>${u.games} completed games, ${u.normalGames} normal-role games. ${esc(u.confidence)}.</p><div class="impact-grid"><div class="impact"><span>Carries/game</span><b>${fmt(u.carries)}</b></div><div class="impact"><span>Targets/game</span><b>${fmt(u.targets)}</b></div><div class="impact"><span>Snap share</span><b>${u.snap===null?'—':`${Math.round(u.snap*100)}%`}</b></div></div><p class="footnote">Carries + targets measure opportunities, not equivalent expected points. Scoring standard deviation: ${fmt(u.scoreSD)} points. Routes, backfield share, and quarterback-change interpretation are not supplied by this view; consistency remains provisional.</p>
+  $('#player-content').innerHTML=`<p>${esc(p.position)} · ${esc(p.team||'Free agent')} · ${esc(p.injury||'No designation in Sleeper directory')}</p><span class="pill amber">${esc(u.label)}</span><p>${u.games} completed games, ${u.normalGames} normal-role games. ${esc(u.confidence)}.</p><div class="impact-grid"><div class="impact"><span>Carries/game</span><b>${fmt(u.carries)}</b></div><div class="impact"><span>Targets/game</span><b>${fmt(u.targets)}</b></div><div class="impact"><span>Snap share</span><b>${u.snap===null?'—':`${Math.round(u.snap*100)}%`}</b></div><div class="impact"><span>Target share</span><b>${u.targetShare===null?'—':`${Math.round(u.targetShare*100)}%`}</b></div><div class="impact"><span>Air-yard share</span><b>${u.airYardShare===null?'—':`${Math.round(u.airYardShare*100)}%`}</b></div></div><p class="footnote">Carries + targets measure opportunities, not equivalent expected points. Scoring standard deviation: ${fmt(u.scoreSD)} points. nflverse supplements completed-game usage when its Sleeper-to-GSIS mapping is available. Routes, backfield share, and quarterback-change interpretation are not supplied by this view; consistency remains provisional.</p>
     <div class="table-wrap"><table><thead><tr><th>Completed week</th><th>Carries</th><th>Targets</th><th>Snaps</th><th>Red-zone carries</th><th>Source</th></tr></thead><tbody>${u.rows.map(g=>`<tr><td>${g.week}</td><td>${g.stats.rush_att??0}</td><td>${g.stats.rec_tgt??0}</td><td>${g.stats.off_snp??'—'} / ${g.stats.tm_off_snp??'—'}</td><td>${g.stats.rush_rz_att??'—'}</td><td>${esc(g.source)}</td></tr>`).join('')}</tbody></table></div><h3 style="margin-top:20px">Future-week projection evidence</h3><div class="table-wrap"><table><thead><tr><th>Week</th><th>Opponent</th><th>As of</th><th>Source</th><th>Status</th></tr></thead><tbody>${weeksFor(ctx,state.brief).map(w=>{const row=ctx.projections[id]?.[w];return `<tr><td>${w}</td><td>${esc(row?.opponent||'—')}</td><td>${time(row?.asOf)}</td><td>${esc(row?.source||'Unavailable')}</td><td>${!row?'Missing':row.stale?'Stale':'Available'}</td></tr>`;}).join('')}</tbody></table></div>`;
   $('#player-dialog').showModal();
 }
@@ -195,6 +201,7 @@ function showPlayer(id){
 document.addEventListener('input',event=>{const side=event.target.dataset.search;if(side)$(`#pick-${side}`).innerHTML=pickerRows(side,event.target.value);});
 document.addEventListener('change',async event=>{
   const el=event.target;
+  if(el.dataset.briefAdd){const id=el.value;if(id){state.brief=editBriefPlayers(state.brief,el.dataset.briefAdd,id);invalidateSearch();await persist();renderBrief();renderWorkspace();}return;}
   if(el.dataset.brief){const key=el.dataset.brief;state.brief[key]=el.multiple?[...el.selectedOptions].map(o=>o.value):el.type==='checkbox'?el.checked:el.value;invalidateSearch();persist();renderBrief();renderWorkspace();}
   if(el.dataset.position){state.brief.returnPositions=el.checked?[...state.brief.returnPositions,el.dataset.position]:state.brief.returnPositions.filter(p=>p!==el.dataset.position);invalidateSearch();persist();renderWorkspace();}
   if(el.dataset.team){state.offer[el.dataset.team==='give'?'a':'b']=Number(el.value);state.offer[el.dataset.team]=[];state.selectedSaved=null;state.maximum=null;renderAnalyzer();}
@@ -206,6 +213,7 @@ document.addEventListener('change',async event=>{
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   try {
+    if(button.dataset.briefRemove){state.brief=editBriefPlayers(state.brief,button.dataset.briefRemove,button.dataset.player,'remove');invalidateSearch();await persist();renderBrief();renderWorkspace();return;}
     if(button.dataset.close){$(`#${button.dataset.close}`).close();return;}
     if(button.dataset.view){chooseView(button.dataset.view);return;}
     if(button.dataset.evidence){showPlayer(button.dataset.evidence);return;}
@@ -242,6 +250,7 @@ $('.trade-tabs').addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight'].i
 $('#refresh').onclick=refresh;$('#sources-button').onclick=sourcesDialog;
 async function initialize(){
   try{const response=await fetch(`/api/trade/state?league=${LEAGUE}`);if(!response.ok)throw new Error();const saved=await response.json();state.brief={...structuredClone(DEFAULT_BRIEF),...saved.brief};state.saved=saved.saved||[];state.imports=saved.imports||[];state.dismissed=saved.dismissed||{};state.storageReady=true;}catch{notify('Saved workspace could not be read. League data is still available.');}
+  const params=new URLSearchParams(location.search);if(params.get('partner'))state.brief.partner=params.get('partner');if(['QB','RB','WR','TE'].includes(params.get('goal')))state.brief.goal=params.get('goal');if(['analyze','find','negotiate'].includes(params.get('view')))state.view=params.get('view');
   await refresh();
 }
 initialize();

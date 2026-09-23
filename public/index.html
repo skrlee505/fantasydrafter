@@ -2,68 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Draftside — Fantasy Draft Command Center</title>
+  <title>League Power Rankings — Draftside</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="/mock.css">
-  <link rel="stylesheet" href="/improvements.css">
+  <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/power.css">
 </head>
-<body>
-  <header class="topbar">
-    <div class="brand"><div class="brandmark">D</div><div><b>DRAFTSIDE</b><span>Fantasy command center</span></div></div>
-    <div class="league"><span class="live-dot"></span><div><b id="leagueName">Fantasy Foot🅱️oolers 🏈</b><span id="leagueMeta">12-team · Half PPR · Pick 12</span></div></div>
-    <div class="top-actions"><button id="sourcesBtn" class="ghost">Ranking sources</button><button id="strategyBtn" class="ghost">Strategy library</button><button id="modeBtn" class="ghost">Practice mocks</button><button id="undoBtn" class="ghost" title="Undo latest manual entry">Undo manual</button><button id="muteBtn" class="icon-btn" title="Mute alerts">◖))</button><button id="refreshBtn" class="primary">↻ Refresh</button></div>
-  </header>
-  <nav class="platform-nav" aria-label="Platform"><a href="/" aria-current="page">Draft room</a><a href="/trade.html">Trade center ↗</a></nav>
-  <div id="offlineBanner" class="offline hidden">Offline — showing last known draft state. Manual recovery is available.</div>
-  <main>
-    <section class="turn-strip">
-      <div><span id="pickLabel" class="eyebrow">ROUND 1 · PICK 12</span><h1 id="turnTitle">You’re on the clock</h1><p id="turnDetail">Back-to-back picks. Your next selection is pick 13.</p></div>
-      <div class="clock"><span id="pickContext">#12</span><small>CURRENT PICK</small><b id="pickDistance">YOU'RE UP</b></div>
-      <div class="sync"><span id="syncStatus"><i></i> Sleeper connected</span><small id="syncTime">Synced just now</small><button id="manualBtn">＋ Manual pick</button></div>
+<body class="power-app">
+  <header class="power-top"><a class="brand" href="/" aria-label="Draftside home"><div class="brandmark">D</div><div><b>DRAFTSIDE</b><span>Fantasy command center</span></div></a><nav aria-label="Platform"><a class="current" href="/" aria-current="page">Power rankings</a><a href="/draft.html">Draft room</a><a href="/trade.html">Trade center</a></nav><button id="refresh" class="ghost">↻ Sync league</button></header>
+  <main class="power-main">
+    <section class="power-hero"><div><span class="eyebrow">LEAGUE LANDSCAPE</span><h1>Know where every roster stands.</h1><p>League-adjusted starters, depth, results, and availability in one transparent ranking.</p><div id="league-context" class="hero-context">Connecting to your Sleeper league…</div></div><div class="hero-rank" aria-hidden="true">#1</div></section>
+    <div id="status" class="power-status" role="status">Loading league rosters and current evidence…</div>
+    <section id="controls" class="power-controls panel" aria-label="Ranking controls">
+      <div><span class="eyebrow">ANALYSIS HORIZON</span><div class="segment"><button data-horizon="season" aria-pressed="true">Rest of season</button><button data-horizon="three" aria-pressed="false">Next three weeks</button></div></div>
+      <div><label for="ranking-view">Rank by</label><select id="ranking-view"><option value="overall">Overall power</option><option value="starters">Projected starters</option><option value="depth">Depth</option><option value="performance">Completed performance</option><option value="QB">QB group</option><option value="RB">RB group</option><option value="WR">WR group</option><option value="TE">TE group</option></select></div>
+      <button id="method" class="text-btn">How the score works ↗</button>
     </section>
-
-    <div class="decision-workspace">
-      <section class="recommend-panel panel">
-        <div class="section-head"><div><span class="eyebrow">DECISION SUPPORT</span><h2>Your top 5 picks</h2><p>Balanced build · Hero RB lean · position-adjusted</p></div><button id="whyBtn" class="text-btn">How ranking works ↗</button></div>
-        <div id="recommendations" class="recommend-grid"></div>
-      </section>
-
-      <section class="board panel">
-        <div class="section-head compact"><div><span id="boardMode" class="eyebrow">LIVE DRAFT</span><h2>Draft board</h2></div><div class="legend"><span><i class="l-qb"></i>QB</span><span><i class="l-rb"></i>RB</span><span><i class="l-wr"></i>WR</span><span><i class="l-te"></i>TE</span><span><i class="l-manual"></i>Manual</span></div></div>
-        <div id="draftBoard" class="draft-board"></div>
-      </section>
+    <section id="my-team" aria-live="polite"></section>
+    <div class="power-grid">
+      <section class="panel rankings-panel"><div class="section-head"><div><span class="eyebrow">ALL 12 TEAMS</span><h2>League rankings</h2><p id="ranking-caption">Overall Power Score</p></div><span id="coverage" class="confidence">Checking coverage</span></div><div id="rankings" class="ranking-list"></div></section>
+      <aside id="team-detail" class="panel team-detail"><div class="loading-card"><div class="loading-line"></div><h2>Building the rankings</h2><p>Optimizing every legal lineup and measuring usable depth.</p></div></aside>
     </div>
-
-    <section class="live-feedback panel" aria-live="polite">
-      <div class="feedback-mark">LIVE</div>
-      <div><span class="eyebrow">DRAFT ROOM READ</span><h2>Live feedback</h2><p id="liveFeedback"></p></div>
-    </section>
-
-    <div class="content-grid">
-      <section class="available panel">
-        <div class="section-head compact"><div><span class="eyebrow">PLAYER POOL</span><h2>Best available</h2></div><div class="count" id="playerCount"></div></div>
-        <div class="filters"><label class="search">⌕ <input id="search" placeholder="Search players"></label><div id="positionFilters" class="chips"><button class="active" data-pos="ALL">All</button><button data-pos="QB">QB</button><button data-pos="RB">RB</button><button data-pos="WR">WR</button><button data-pos="TE">TE</button><button data-pos="K">K</button><button data-pos="DEF">DEF</button></div></div>
-        <div class="table-wrap"><table><thead><tr><th>VALUE</th><th>PLAYER</th><th>POS</th><th>PROJ</th><th>TIER</th><th>SOURCE</th><th>SLEEPER</th><th>BYE</th><th></th></tr></thead><tbody id="playerRows"></tbody></table></div>
-      </section>
-
-      <aside class="roster panel">
-        <div class="section-head compact"><div><span class="eyebrow">HORSES DON’T STOP</span><h2>Roster build</h2></div><div class="grade"><b id="grade">B+</b><span>LIVE GRADE</span></div></div>
-        <div id="rosterSlots" class="roster-slots"></div>
-        <div class="needs"><b>Build read</b><div class="meter"><i id="meter"></i></div><p id="buildRead">You have two picks at the turn. Secure an anchor RB, then take the best receiver value.</p></div>
-        <div class="insights"><div><span class="good">↗</span><p><b>Strength</b><br><span id="strength">Clean slate, maximum flexibility</span></p></div><div><span class="warn">!</span><p><b>Priority</b><br><span id="priority">Add an anchor RB and elite WR</span></p></div></div>
-      </aside>
-    </div>
-
-    <section id="evaluationPanel" class="evaluation panel hidden"></section>
+    <section id="comparison" class="panel comparison-panel"></section>
   </main>
-
-  <div id="toast" class="toast hidden"></div>
-  <dialog id="manualDialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">RECOVERY CONTROL</span><h2>Add a manual pick</h2></div><button value="cancel" class="close">×</button></div><p>Temporary picks are marked on the board and automatically replaced when Sleeper confirms that pick number.</p><label>Pick number<input id="manualNumber" type="number" min="1" max="180" value="12"></label><label>Player<select id="manualPlayer"></select></label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="saveManual" value="default" class="primary">Save manual pick</button></div></form></dialog>
-  <dialog id="whyDialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">TRANSPARENT MODEL</span><h2>Why this order?</h2></div><button class="close">×</button></div><p>The score blends league-adjusted projection, value over replacement, tier scarcity, roster fit, next-pick availability, player risk, ADP, upside, and modest stack value.</p><ul><li>Starter safety leads early; ceiling gains weight for bench picks.</li><li>Hero RB is a preference, not a rule.</li><li>QB and TE are delayed unless elite-tier value is available.</li><li>Kicker and defense are held for the final rounds.</li></ul><div class="data-note">Prototype projections are a bundled demonstration dataset. Live Sleeper scoring and picks are loaded when available; projection-provider provenance and freshness are disclosed in the UI.</div></form></dialog>
-  <dialog id="mockDialog" class="wide-dialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">PRACTICE ROOM</span><h2>Sleeper mock drafts</h2></div><button value="cancel" class="close">×</button></div><p>Paste a Sleeper draft ID to follow a live mock. Mock picks, manual recovery, and evaluations stay separate from your real draft.</p><label>Draft ID<div class="inline-entry"><input id="mockDraftId" inputmode="numeric" placeholder="Paste Sleeper draft ID"><button id="startMock" class="primary">Start mock</button></div></label><div class="history-head"><b>Saved mock history</b><span id="historyCount"></span></div><div id="mockHistory" class="mock-history"></div></form></dialog>
-  <dialog id="sourcesDialog" class="wide-dialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">PLAYER DATA · SAVED ON MAC</span><h2>Ranking sources</h2></div><button value="cancel" class="close">×</button></div><p>Import one or more CSV draft sheets. Enabled sources define the eligible recommendation pool and are blended using their weights.</p><div class="data-note">Required columns: <b>player/name</b> and <b>position/pos</b>. Optional: rank/ECR, team, ADP, projection/points, and tier. Imported sources persist across app builds on this Mac.</div><div id="rankingSources" class="source-list"></div><label>Source name<input id="sourceName" placeholder="Example: Analyst rankings"></label><label>CSV file<input id="sourceFile" type="file" accept=".csv,text/csv"></label><div class="dialog-actions"><button value="cancel">Close</button><button id="importSource" type="button" class="primary">Import and save</button></div></form></dialog>
-  <dialog id="strategyDialog" class="wide-dialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">STRATEGY LIBRARY · SAVED ON MAC</span><h2>Draft articles</h2></div><button value="cancel" class="close">×</button></div><p>Import draft-strategy articles separately from player rankings. Draftside detects supported advice and applies a limited, visible adjustment to the recommendation engine.</p><div class="data-note">Supports text, Markdown, HTML, and text-searchable PDF files. The complete extracted source is saved in the same durable on-Mac library as ranking sources. Image-only scanned PDFs need OCR first.</div><div id="strategySources" class="source-list"></div><label>Article name<input id="strategyName" placeholder="Example: 2026 Hero RB strategy"></label><label>Article file<input id="strategyFile" type="file" accept=".txt,.md,.html,.htm,.pdf,text/plain,text/markdown,text/html,application/pdf"></label><label>Or paste article text<textarea id="strategyText" rows="6" placeholder="Paste strategy notes or article text here"></textarea></label><div class="dialog-actions"><button value="cancel">Close</button><button id="importStrategy" type="button" class="primary">Import and analyze</button></div></form></dialog>
-  <script type="module" src="/app.js"></script>
+  <dialog id="method-dialog"><form method="dialog"><div class="dialog-head"><div><span class="eyebrow">POWER MODEL</span><h2>How the score works</h2></div><button class="close" value="cancel" aria-label="Close">×</button></div><p>Power Score is relative to this league and snapshot. It combines projected legal starters (45%), roster depth (15%), completed performance (20%), record (10%), and availability (10%).</p><ul><li>Every player can fill only one legal lineup slot per week.</li><li>Bench points count only when that player replaces a starter.</li><li>All-play results separate weekly performance from matchup schedule.</li><li>Evidence confidence is separate from team quality. Missing starter data can withhold a score.</li></ul><p class="data-note">Scores cannot be compared across unrelated leagues or formula versions. They are decision support, not playoff or championship odds.</p></form></dialog>
+  <div id="notice" class="toast hidden" role="status"></div>
+  <script type="module" src="/power.js"></script>
 </body></html>
