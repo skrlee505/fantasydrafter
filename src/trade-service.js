@@ -99,9 +99,10 @@ export async function buildContext(leagueId,userId,directory) {
   const completedThrough=currentFinal?currentWeek:matchupFinal?matchupWeek:Math.min(Number(league.settings.last_scored_leg||0),currentWeek-1);
   const statWeeks=Array.from({length:Math.min(4,completedThrough)},(_,i)=>completedThrough-Math.min(4,completedThrough)+i+1);
   const jobs=[...weeks.map(week=>({kind:'projection',week,url:`https://api.sleeper.com/projections/nfl/${league.season}/${week}?season_type=regular`})),...statWeeks.map(week=>({kind:'usage',week,url:`https://api.sleeper.com/stats/nfl/${league.season}/${week}?season_type=regular`}))];
-  const [feeds,matchRes]=await Promise.all([mapLimit(jobs,4,async job=>({...job,...await cachedFetch(job.url)})),cachedFetch(`${api}/league/${leagueId}/matchups/${matchupWeek}`,15000).catch(()=>({data:[]}))]);
+  const completedWeeks=Array.from({length:completedThrough},(_,index)=>index+1);
+  const [feeds,matchRes,historyResults]=await Promise.all([mapLimit(jobs,4,async job=>({...job,...await cachedFetch(job.url)})),cachedFetch(`${api}/league/${leagueId}/matchups/${matchupWeek}`,15000).catch(()=>({data:[]})),mapLimit(completedWeeks,4,week=>cachedFetch(`${api}/league/${leagueId}/matchups/${week}`,15000))]);
   const userMap=Object.fromEntries(users.map(u=>[u.user_id,u]));
-  const teams=rosters.map(r=>({id:r.roster_id,owner:r.owner_id,name:userMap[r.owner_id]?.metadata?.team_name||userMap[r.owner_id]?.display_name||`Team ${r.roster_id}`,manager:userMap[r.owner_id]?.display_name||'Unknown manager',players:r.players||[],reserve:r.reserve||[],starters:r.starters||[],wins:r.settings?.wins||0,losses:r.settings?.losses||0}));
+  const teams=rosters.map(r=>({id:r.roster_id,owner:r.owner_id,name:userMap[r.owner_id]?.metadata?.team_name||userMap[r.owner_id]?.display_name||`Team ${r.roster_id}`,manager:userMap[r.owner_id]?.display_name||'Unknown manager',players:r.players||[],reserve:r.reserve||[],starters:r.starters||[],wins:r.settings?.wins||0,losses:r.settings?.losses||0,ties:r.settings?.ties||0,pointsFor:Number(`${r.settings?.fpts||0}.${String(r.settings?.fpts_decimal||0).padStart(2,'0')}`)}));
   const rosterIds=new Set(teams.flatMap(t=>t.players));
   const players=Object.fromEntries(Object.entries(playersRes.data).filter(([id,p])=>rosterIds.has(id)||p.active&&['QB','RB','WR','TE','K','DEF'].includes(p.position)).map(([id,p])=>[id,{id,name:p.full_name||`${p.first_name||''} ${p.last_name||''}`.trim()||id,position:p.position,positions:p.fantasy_positions||[p.position],team:p.team,injury:p.injury_status,newsUpdated:p.news_updated,gsisId:String(p.gsis_id||'').trim()||null}]));
   const projections={},usage={},sources=[],warnings=[];
@@ -150,17 +151,26 @@ export async function buildContext(leagueId,userId,directory) {
   warnings.push(schedule.length>=270?'Byes are identified from the full Sleeper season schedule. Unexplained missing projections remain unknown.':'Schedule unavailable: bye weeks without explicit evidence remain unknown.');
   if(league.settings.playoff_week_start!==15)warnings.push('Custom playoff schedule: the horizon currently ends in NFL week 17; verify your championship week.');
   const playersRemaining=Object.fromEntries(teams.map(t=>[t.id,(matchRes.data?.find(m=>m.roster_id===t.id)?.starters||t.starters).filter(id=>{const nflTeam=players[id]?.team;return matchupGames.some(g=>(g.home===nflTeam||g.away===nflTeam)&&g.status!=='complete');}).length]));
-  return {league,userRoster:teams.find(t=>t.owner===userId)?.id||null,teams,players,projections,usage,weeks,currentWeek,completedThrough,matchupWeek,matchups:matchRes.data||[],matchupFinal,playersRemaining,newsAvailable:false,unsupportedScoring,sources,warnings,snapshotId:`${leagueId}-${Date.now()}`,fetchedAt:new Date().toISOString(),playersAsOf:new Date(playersRes.time).toISOString()};
+  const matchupHistory=historyResults.flatMap((result,index)=>result.value?[{week:completedWeeks[index],matchups:result.value.data||[]}]:[]);
+  return {league,userRoster:teams.find(t=>t.owner===userId)?.id||null,teams,players,projections,usage,weeks,currentWeek,completedThrough,matchupWeek,matchups:matchRes.data||[],matchupHistory,matchupFinal,playersRemaining,newsAvailable:false,unsupportedScoring,sources,warnings,snapshotId:`${leagueId}-${Date.now()}`,fetchedAt:new Date().toISOString(),playersAsOf:new Date(playersRes.time).toISOString()};
 }
 export function tradeRoutes({directory,json,readBody}) {
   return async function handle(req,res,path) {
-    if(!path.startsWith('/api/trade/'))return false;
+    if(!path.startsWith('/api/trade/')&&!path.startsWith('/api/power/'))return false;
     try {
       await mkdir(directory,{recursive:true});
       const url=new URL(req.url,'http://localhost');
       const leagueId=url.searchParams.get('league')||'1389736921957150721';
       if(!/^\d{10,22}$/.test(leagueId))return json(res,400,{error:'Invalid league ID.'}),true;
-      const file=join(directory,`trade-${leagueId}.json`),snapshotPath=join(directory,`trade-snapshot-${leagueId}.json`);
+      const file=join(directory,`trade-${leagueId}.json`),snapshotPath=join(directory,`trade-snapshot-${leagueId}.json`),powerPath=join(directory,`power-${leagueId}.json`);
+      if(path==='/api/power/state'){
+        if(req.method==='GET'){json(res,200,await readJson(powerPath,{snapshots:[],horizon:'season'}));return true;}
+        if(req.method==='PUT'){
+          const body=await readBody(req);if(!body||!Array.isArray(body.snapshots))throw new Error('Invalid power rankings workspace.');
+          const payload={snapshots:body.snapshots.slice(-100),horizon:body.horizon==='three'?'three':'season',savedAt:new Date().toISOString()};
+          await atomicSave(powerPath,payload);json(res,200,{savedAt:payload.savedAt});return true;
+        }
+      }
       if(path==='/api/trade/state') {
         if(req.method==='GET'){json(res,200,await readJson(file,{brief:null,saved:[],imports:[]}));return true;}
         if(req.method==='PUT'){
@@ -169,7 +179,7 @@ export function tradeRoutes({directory,json,readBody}) {
           const payload={brief:body.brief,saved:body.saved.slice(0,100),imports:body.imports.slice(0,20),dismissed:body.dismissed||{},savedAt:new Date().toISOString()};
           await atomicSave(file,payload);json(res,200,{savedAt:payload.savedAt});return true;
         }
-      } else if(path==='/api/trade/context'&&req.method==='GET') {
+      } else if((path==='/api/trade/context'||path==='/api/power/context')&&req.method==='GET') {
         const userId=url.searchParams.get('user')||'755351346516996096';
         if(!/^\d{10,22}$/.test(userId))throw new Error('Invalid user ID.');
         try {const context=await buildContext(leagueId,userId,directory);await atomicSave(snapshotPath,context);json(res,200,context);}

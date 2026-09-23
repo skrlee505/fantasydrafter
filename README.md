@@ -10,7 +10,15 @@ Requires Node.js 22.13 or newer.
 npm start
 ```
 
-Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> in current Chrome. Run tests with `npm test`.
+Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> in current Chrome. The home page is League Power Rankings; the Draft Room remains available at <http://127.0.0.1:4173/draft.html>. Run tests with `npm test`.
+
+## League Power Rankings
+
+The home page ranks every connected league roster with a transparent, league-relative Power Score. It combines optimized legal starter projections (45%), usable depth (15%), completed performance and all-play results (20%), record (10%), and current availability (10%). Evidence confidence is shown separately so missing data cannot make a roster look artificially weak.
+
+Switch between rest-of-season and next-three-weeks horizons, sort by overall power or a component/position group, open any team for lineup and score evidence, and compare two teams on the same snapshot. Completed-week ranking snapshots persist locally and power direct handoffs into Trade Center with the selected partner and desired return position. If the season has not started, the module clearly labels a forward-only outlook and reweights only its supported forward components.
+
+See [POWER_RANKINGS_REQUIREMENTS.md](POWER_RANKINGS_REQUIREMENTS.md) for the product and acceptance requirements.
 
 ## Trade Center
 

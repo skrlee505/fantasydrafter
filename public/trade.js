@@ -250,6 +250,7 @@ $('.trade-tabs').addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight'].i
 $('#refresh').onclick=refresh;$('#sources-button').onclick=sourcesDialog;
 async function initialize(){
   try{const response=await fetch(`/api/trade/state?league=${LEAGUE}`);if(!response.ok)throw new Error();const saved=await response.json();state.brief={...structuredClone(DEFAULT_BRIEF),...saved.brief};state.saved=saved.saved||[];state.imports=saved.imports||[];state.dismissed=saved.dismissed||{};state.storageReady=true;}catch{notify('Saved workspace could not be read. League data is still available.');}
+  const params=new URLSearchParams(location.search);if(params.get('partner'))state.brief.partner=params.get('partner');if(['QB','RB','WR','TE'].includes(params.get('goal')))state.brief.goal=params.get('goal');if(['analyze','find','negotiate'].includes(params.get('view')))state.view=params.get('view');
   await refresh();
 }
 initialize();

@@ -18,6 +18,14 @@ test('trade workspace survives a fresh route instance and does not share league 
     res={};await route({url:'/api/trade/state',method:'DELETE'},res,'/api/trade/state');assert.equal(res.status,405);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
+test('power ranking history persists by league',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'draftside-power-test-'));
+  try{
+    const json=(res,status,payload)=>Object.assign(res,{status,payload}),route=tradeRoutes({directory,json,readBody:async req=>req.body});
+    let res={};await route({url:'/api/power/state?league=1389736921957150721',method:'PUT',body:{horizon:'three',snapshots:[{week:2,version:'power-1.0',teams:[]}]}},res,'/api/power/state');assert.equal(res.status,200);
+    res={};await route({url:'/api/power/state?league=1389736921957150721',method:'GET'},res,'/api/power/state');assert.equal(res.payload.horizon,'three');assert.equal(res.payload.snapshots[0].week,2);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test('upstream row normalization preserves player identity for list and map responses',()=>{
   assert.equal(normalizeRows([{player_id:'9226',stats:{rec:3}}])[0].player_id,'9226');
   assert.equal(normalizeRows({'9226':{rec:3}})[0].stats.rec,3);
