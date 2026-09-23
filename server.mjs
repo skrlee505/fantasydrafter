@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, stat, mkdir, writeFile, rename } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tradeRoutes } from './src/trade-service.js';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -14,9 +15,11 @@ async function readSourceLibrary(){try{const parsed=JSON.parse(await readFile(so
 async function readJsonBody(req){let body='';for await(const chunk of req){body+=chunk;if(body.length>15_000_000)throw new Error('Source library is too large')}return JSON.parse(body||'{}')}
 async function saveSourceLibrary(payload){const library={rankingSources:Array.isArray(payload.rankingSources)?payload.rankingSources:[],strategySources:Array.isArray(payload.strategySources)?payload.strategySources:[],savedAt:new Date().toISOString()};await mkdir(dataDirectory,{recursive:true});const temporary=`${sourceLibraryPath}.tmp`;await writeFile(temporary,JSON.stringify(library,null,2),'utf8');await rename(temporary,sourceLibraryPath);return library}
 
+const handleTrade=tradeRoutes({directory:dataDirectory,json,readBody:readJsonBody});
 const server = createServer(async (req, res) => {
   try {
     const raw = decodeURIComponent((req.url || '/').split('?')[0]);
+    if(await handleTrade(req,res,raw))return;
     if(raw==='/api/source-library'){
       if(req.method==='GET')return json(res,200,await readSourceLibrary());
       if(req.method==='PUT')return json(res,200,await saveSourceLibrary(await readJsonBody(req)));

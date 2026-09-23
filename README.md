@@ -12,6 +12,22 @@ npm start
 
 Install dependencies once with `npm install`, then open <http://127.0.0.1:4173> in current Chrome. Run tests with `npm test`.
 
+## Trade Center
+
+Open **Trade center** from the platform navigation, or visit <http://127.0.0.1:4173/trade.html>. Restart an older running server once after installing this update so the new local endpoints are available.
+
+- **Analyze trade:** select two league managers and up to four players per side. Compare optimized legal starting lineups, weekly and remaining-season impact, position contributions, required drops, player workload, and source limitations.
+- **Find trades:** search a bounded set of up to 500 offers from current league rosters. The trade brief controls players to shop, required inclusions, protected players, return positions, risk priority, horizon, and partner filters. Complete evaluations appear before explicitly labeled research candidates whose lineup benefits cannot yet be verified.
+- **Negotiation plan:** choose an opening, record objections, build an independently evaluated counter, set an explicit maximum, copy a message, and retain negotiation history. Nothing is submitted to Sleeper or sent to another manager.
+
+The initial brief reflects the current trade discussion: shop Achane and McLaurin together, protect Hubbard, improve WR, and prioritize RB consistency. All preferences are editable. Changing a protection also invalidates conflicting saved offers and negotiation stages.
+
+The center connects read-only to Sleeper for current league configuration, rosters, scores, season schedule, future weekly stat projections, and up to four completed weeks of usage. The projection/stat feeds expose their upstream company (for example RotoWire or Sportradar); those are attributed as feeds distributed by Sleeper, not direct licensed integrations with those companies. Projections are mapped through league scoring; unsupported categories are disclosed. The default horizon includes the current week only if every scheduled game is still unplayed and ends in week 17. Custom championship schedules need verification.
+
+Market values and a current reporting feed are **not** bundled. Sources & scoring supports a separate dated JSON evidence import for weekly stat projections and market values using exact Sleeper IDs. Old draft sheets never silently become rest-of-season trade data. Projections older than seven days or without scoring stats are withheld. Bye weeks are established from the complete season schedule; a missing projection is not treated as a bye or zero. The consistency assessment needs three completed normal-role games, distinguishes workload variability from scoring volatility, and does not infer role security from reputation or a good offense.
+
+Trade preferences, saved versions, their evidence snapshots, and negotiation notes persist in `.draftside-data/trade-<league-id>.json`. Current context and player-map caches are separate ignored local files. All three views share `src/trade-engine.js`; data access and serialized persistence live in `src/trade-service.js`. See [TRADE_CENTER_REQUIREMENTS.md](TRADE_CENTER_REQUIREMENTS.md) for the product scope and [TRADE_CENTER_IMPLEMENTATION.md](TRADE_CENTER_IMPLEMENTATION.md) for the calculation boundaries and verification record.
+
 ## What works
 
 - Five ranked, explained recommendations that react to every pick

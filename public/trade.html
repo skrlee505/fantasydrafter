@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trade Center — Draftside</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/trade.css">
+</head>
+<body class="trade-app">
+  <header class="trade-top"><a class="brand" href="/" aria-label="Draftside home"><div class="brandmark">D</div><div><b>DRAFTSIDE</b><span>Fantasy command center</span></div></a><nav aria-label="Platform"><a href="/">Draft room</a><a class="current" href="/trade.html" aria-current="page">Trade center</a></nav><button id="refresh" class="ghost">↻ Sync league</button></header>
+  <main class="trade-main">
+    <section class="trade-hero"><div><span class="eyebrow">YOUR NEXT MOVE</span><h1>Build a better lineup.</h1><p>Find the right return. Understand both sides. Know your limit.</p><div id="league-context" class="hero-context">Connecting to your Sleeper league…</div></div><div class="hero-symbol" aria-hidden="true">⇄</div></section>
+    <div class="trade-status" role="status" id="status">Loading saved trade preferences and league data…</div>
+    <div class="trade-layout">
+      <aside class="trade-sidebar">
+        <section class="trade-card brief-card"><div class="card-heading"><div><span class="eyebrow">THE TRADE BRIEF</span><h2>Your priorities</h2></div><span class="pill">SAVED</span></div><div id="brief"></div></section>
+        <section class="trade-card"><div class="card-heading"><h2>Saved offers</h2><span id="saved-count" class="muted">0</span></div><div id="saved"></div></section>
+        <button class="source-button" id="sources-button">Sources & scoring <span>↗</span></button>
+      </aside>
+      <section class="trade-workspace" aria-label="Trade workspace">
+        <div class="trade-tabs" role="tablist" aria-label="Trade workflows"><button id="tab-analyze" role="tab" data-view="analyze" aria-selected="true" aria-controls="workspace">Analyze trade</button><button id="tab-find" role="tab" data-view="find" aria-selected="false" aria-controls="workspace">Find trades</button><button id="tab-negotiate" role="tab" data-view="negotiate" aria-selected="false" aria-controls="workspace">Negotiation plan</button></div>
+        <div id="workspace" role="tabpanel" aria-labelledby="tab-analyze"><div class="trade-card loading-card"><div class="loading-line"></div><h2>Getting the full picture</h2><p>Loading rosters, weekly projections, and completed-game usage. Your draft rankings stay separate.</p></div></div>
+      </section>
+    </div>
+  </main>
+  <dialog id="sources-dialog" class="trade-dialog"><div class="card-heading"><h2>Sources & scoring</h2><button class="close" data-close="sources-dialog" aria-label="Close sources">×</button></div><div id="sources-content"></div></dialog>
+  <dialog id="player-dialog" class="trade-dialog"><div class="card-heading"><h2 id="player-title">Player evidence</h2><button class="close" data-close="player-dialog" aria-label="Close evidence">×</button></div><div id="player-content"></div></dialog>
+  <div id="notice" role="status" class="trade-notice" hidden></div>
+  <script type="module" src="/trade.js"></script>
+</body></html>
