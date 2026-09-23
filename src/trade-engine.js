@@ -1,6 +1,20 @@
 // Pure, shared trade calculations. No network, draft rankings, or generated facts.
 export const VERSION = 'trade-1.0';
 export const DEFAULT_BRIEF = {shop:['9226','5927'], required:true, protected:['7594'], risk:'consistency', goal:'WR', returnPositions:['RB','WR'], excluded:[], excludedTeams:[], partner:'', filter:'all', diversity:true, horizon:'season'};
+export function editBriefPlayers(brief,key,id,action='add') {
+  const next=structuredClone(brief);
+  if(!['shop','protected'].includes(key)||!id)return next;
+  const other=key==='shop'?'protected':'shop';
+  next[key]=[...new Set(next[key]||[])];
+  next[other]=[...new Set(next[other]||[])];
+  if(action==='remove')next[key]=next[key].filter(playerId=>playerId!==id);
+  else {
+    next[key]=[...next[key].filter(playerId=>playerId!==id),id];
+    next[other]=next[other].filter(playerId=>playerId!==id);
+    if(key==='shop'&&next.shop.length>2)next.required=false;
+  }
+  return next;
+}
 const activeSlots = league => (league.roster_positions || []).filter(p => !['BN','IR','TAXI'].includes(p));
 const finite = x => typeof x === 'number' && Number.isFinite(x);
 const avg = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;

@@ -1,4 +1,4 @@
-import {DEFAULT_BRIEF,VERSION,evaluateTrade,negotiationPlan,usage,nameOf,weeksFor,playerValue,matchupContext,importEvidence,applyEvidence} from '/src/trade-engine.js';
+import {DEFAULT_BRIEF,VERSION,evaluateTrade,negotiationPlan,usage,nameOf,weeksFor,playerValue,matchupContext,importEvidence,applyEvidence,editBriefPlayers} from '/src/trade-engine.js';
 
 const LEAGUE='1389736921957150721',USER='755351346516996096';
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -42,10 +42,16 @@ async function refresh(){
   finally{state.loading=false;$('#refresh').disabled=false;if(state.context){renderBrief();renderSaved();renderWorkspace();}}
 }
 function renderBrief(){
-  const ids=me()?.players||[];
-  const selectPlayers=(key,list)=>`<select aria-label="${key==='shop'?'Players to shop':'Protected players'}" multiple data-brief="${key}">${list.map(id=>`<option value="${esc(id)}" ${state.brief[key].includes(id)?'selected':''}>${esc(name(id))}</option>`).join('')}</select>`;
-  $('#brief').innerHTML=`<div><label>Players to shop${selectPlayers('shop',ids)}</label><div class="brief-chips">${state.brief.shop.map(id=>`<span class="brief-chip">${esc(name(id))}</span>`).join('')}</div><label class="check"><input type="checkbox" data-brief="required" ${state.brief.required?'checked':''}>Require every selected player</label></div>
-    <div><label>Protected players${selectPlayers('protected',ids)}</label><div class="brief-chips">${state.brief.protected.map(id=>`<span class="brief-chip protected">${esc(name(id))}</span>`).join('')}</div><p class="brief-help">Never included in outgoing offers or concessions. Use ⌘/Ctrl to select multiple.</p></div>
+  const ids=(me()?.players||[]).slice().sort((a,b)=>`${state.context.players[a]?.position||''} ${name(a)}`.localeCompare(`${state.context.players[b]?.position||''} ${name(b)}`));
+  const playerEditor=(key)=>{
+    const protectedList=key==='protected',selected=state.brief[key]||[],other=key==='shop'?'protected':'shop';
+    const chips=selected.length?selected.map(id=>`<span class="brief-chip ${protectedList?'protected':''}">${esc(name(id))}<button type="button" data-brief-remove="${key}" data-player="${esc(id)}" aria-label="Remove ${esc(name(id))} from ${protectedList?'protected players':'players to shop'}">×</button></span>`).join(''):'<span class="brief-empty">No players selected.</span>';
+    const choices=ids.filter(id=>!selected.includes(id)).map(id=>`<option value="${esc(id)}">${esc(state.context.players[id]?.position||'—')} · ${esc(name(id))}${state.brief[other]?.includes(id)?` · currently ${other==='protected'?'protected':'shopped'}`:''}</option>`).join('');
+    return `<div class="brief-chips">${chips}</div><select class="brief-add" data-brief-add="${key}" aria-label="Add a player to ${protectedList?'protected players':'players to shop'}"><option value="">Add a player…</option>${choices}</select>`;
+  };
+  const requireDisabled=state.brief.shop.length>2;
+  $('#brief').innerHTML=`<div><label>Players to shop</label>${playerEditor('shop')}<p class="brief-help">Add several candidates. Automatic search considers one- and two-player packages containing at least one selected player.</p><label class="check"><input type="checkbox" data-brief="required" ${state.brief.required?'checked':''} ${requireDisabled?'disabled':''}>Require every selected player in each offer</label>${requireDisabled?'<p class="brief-help">This option is available when one or two players are selected.</p>':''}</div>
+    <div><label>Protected players</label>${playerEditor('protected')}<p class="brief-help">Never included in outgoing offers or concessions.</p></div>
     <div><label>Improve at<select data-brief="goal">${options(['WR','RB','TE','QB'].map(p=>[p,p]),state.brief.goal)}</select></label></div>
     <div><label>Priority<select data-brief="risk">${options([['consistency','Consistency'],['balanced','Balanced'],['upside','Upside']],state.brief.risk)}</select></label></div>
     <div><label>Analysis horizon<select data-brief="horizon">${options([['season','Remaining season'],['three','Next three weeks']],state.brief.horizon)}</select></label><p class="brief-help">Weeks ${weeksFor(state.context,state.brief).join(', ')||'—'}. Future weeks only.</p></div>
@@ -195,6 +201,7 @@ function showPlayer(id){
 document.addEventListener('input',event=>{const side=event.target.dataset.search;if(side)$(`#pick-${side}`).innerHTML=pickerRows(side,event.target.value);});
 document.addEventListener('change',async event=>{
   const el=event.target;
+  if(el.dataset.briefAdd){const id=el.value;if(id){state.brief=editBriefPlayers(state.brief,el.dataset.briefAdd,id);invalidateSearch();await persist();renderBrief();renderWorkspace();}return;}
   if(el.dataset.brief){const key=el.dataset.brief;state.brief[key]=el.multiple?[...el.selectedOptions].map(o=>o.value):el.type==='checkbox'?el.checked:el.value;invalidateSearch();persist();renderBrief();renderWorkspace();}
   if(el.dataset.position){state.brief.returnPositions=el.checked?[...state.brief.returnPositions,el.dataset.position]:state.brief.returnPositions.filter(p=>p!==el.dataset.position);invalidateSearch();persist();renderWorkspace();}
   if(el.dataset.team){state.offer[el.dataset.team==='give'?'a':'b']=Number(el.value);state.offer[el.dataset.team]=[];state.selectedSaved=null;state.maximum=null;renderAnalyzer();}
@@ -206,6 +213,7 @@ document.addEventListener('change',async event=>{
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   try {
+    if(button.dataset.briefRemove){state.brief=editBriefPlayers(state.brief,button.dataset.briefRemove,button.dataset.player,'remove');invalidateSearch();await persist();renderBrief();renderWorkspace();return;}
     if(button.dataset.close){$(`#${button.dataset.close}`).close();return;}
     if(button.dataset.view){chooseView(button.dataset.view);return;}
     if(button.dataset.evidence){showPlayer(button.dataset.evidence);return;}

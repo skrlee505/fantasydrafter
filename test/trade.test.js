@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_BRIEF,scoreStats,lineup,evaluateTrade,discoverTrades,negotiationPlan,usage,importEvidence,applyEvidence,matchupContext} from '../src/trade-engine.js';
+import {DEFAULT_BRIEF,scoreStats,lineup,evaluateTrade,discoverTrades,negotiationPlan,usage,importEvidence,applyEvidence,matchupContext,editBriefPlayers} from '../src/trade-engine.js';
 
 function fixture(){
   const definitions={ar:['RB',18],aw:['WR',10],ab:['RB',8],ax:['WR',7],br:['RB',14],bw:['WR',17],bb:['RB',10],bx:['WR',6]};
@@ -14,6 +14,22 @@ function fixture(){
 }
 const brief=()=>({...structuredClone(DEFAULT_BRIEF),shop:['ar','aw'],protected:['ab'],returnPositions:['RB','WR'],risk:'balanced'});
 const offer=()=>({a:1,b:2,give:['ar','aw'],get:['br','bw']});
+
+test('shopping and protection lists can add, move, and remove players',()=>{
+  let edited={...brief(),shop:['ar'],protected:['ab']};
+  edited=editBriefPlayers(edited,'shop','aw');
+  assert.deepEqual(edited.shop,['ar','aw']);
+  edited=editBriefPlayers(edited,'protected','aw');
+  assert.deepEqual(edited.shop,['ar']);assert.deepEqual(edited.protected,['ab','aw']);
+  edited=editBriefPlayers(edited,'shop','ab');
+  assert.deepEqual(edited.shop,['ar','ab']);assert.deepEqual(edited.protected,['aw']);
+  edited=editBriefPlayers(edited,'protected','aw','remove');
+  assert.deepEqual(edited.protected,[]);
+});
+test('a third shopping candidate keeps automatic packages usable',()=>{
+  const edited=editBriefPlayers({...brief(),shop:['ar','aw'],required:true},'shop','ax');
+  assert.deepEqual(edited.shop,['ar','aw','ax']);assert.equal(edited.required,false);
+});
 
 test('custom stat scoring includes receptions and supplied bonuses, never rank units',()=>{
   assert.equal(scoreStats({rec:4,rec_yd:100,rec_td:1,bonus_rec_yd_200:0,rank:1},{rec:.5,rec_yd:.1,rec_td:6,bonus_rec_yd_200:5}),18);
